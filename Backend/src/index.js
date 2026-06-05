@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 
 import ordenesRouter from '../routes/ordenes.js';
 import cadetesRouter from '../routes/cadetes.js';
+import adminRouter   from '../routes/admin.js';
 
 // ── Supabase ───────────────────────────────────────────────────────────────
 export const supabase = createClient(
@@ -24,6 +25,7 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 
 app.use('/api/ordenes', ordenesRouter);
 app.use('/api/cadetes', cadetesRouter);
+app.use('/api/admin',   adminRouter);
 
 // ── Start ──────────────────────────────────────────────────────────────────
 app.listen(3001, () => {

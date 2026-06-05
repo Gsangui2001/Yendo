@@ -13,7 +13,7 @@ const ZONAS = [
 
 const LAST_ZONA_KEY = 'yendo_ultima_zona';
 
-export default function Pedido({ comercioId }) {
+export default function Pedido({ comercioId, onSuccess }) {
   const [clientes, setClientes] = useState([]);
   const [loading, setLoading]   = useState(false);
   const [toast, setToast]       = useState(null); // { message, type: 'success'|'error' }
@@ -110,6 +110,7 @@ export default function Pedido({ comercioId }) {
 
       showToast('Pedido enviado a los cadetes disponibles', 'success');
       limpiar();
+      setTimeout(() => onSuccess?.(), 1500);
     } catch {
       showToast('No se pudo enviar el pedido. Intentá de nuevo.', 'error');
     } finally {

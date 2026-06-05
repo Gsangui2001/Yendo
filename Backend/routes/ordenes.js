@@ -58,7 +58,7 @@ router.post('/', async (req, res) => {
     precio:         body.precio         ?? null,
 
     // Particular
-    usuario_id:  body.usuario_id  ?? null,
+    solicitante_id: body.usuario_id ?? null,
     descripcion: body.descripcion ?? null,
     origen:      body.origen      ?? null,
     destino:     body.destino     ?? null,
@@ -91,7 +91,7 @@ router.get('/', async (req, res) => {
     .order('creado_en', { ascending: false });
 
   if (comercio_id) query = query.eq('comercio_id', comercio_id);
-  if (usuario_id)  query = query.eq('usuario_id', usuario_id);
+  if (usuario_id)  query = query.eq('solicitante_id', usuario_id);
   if (estado)      query = query.eq('estado', estado);
 
   const { data, error } = await query;
@@ -154,6 +154,128 @@ router.patch('/:id/aceptar', async (req, res) => {
   if (resCadete.error) {
     console.error('[PATCH /api/ordenes/:id/aceptar] cadete:', resCadete.error.message);
     // La orden ya quedó asignada — loguear pero no fallar la respuesta
+  }
+
+  return res.json(resOrden.data);
+});
+
+// ── PATCH /api/ordenes/:id/en_camino ─────────────────────────────────────────
+// El cadete marca la orden como en_camino
+router.patch('/:id/en_camino', async (req, res) => {
+  const { id }       = req.params;
+  const { cadete_id } = req.body;
+
+  if (!cadete_id) {
+    return res.status(400).json({ error: 'cadete_id es requerido' });
+  }
+
+  const { data: orden, error: errorBuscar } = await supabase
+    .from('ordenes')
+    .select('id, estado, cadete_id')
+    .eq('id', id)
+    .single();
+
+  if (errorBuscar || !orden) {
+    return res.status(404).json({ error: 'Orden no encontrada' });
+  }
+  if (orden.cadete_id !== cadete_id) {
+    return res.status(403).json({ error: 'No es tu orden' });
+  }
+  if (orden.estado !== 'asignada') {
+    return res.status(409).json({ error: `Estado inválido: ${orden.estado}` });
+  }
+
+  const { data, error } = await supabase
+    .from('ordenes')
+    .update({ estado: 'en_camino' })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('[PATCH /api/ordenes/:id/en_camino]', error.message);
+    return res.status(500).json({ error: 'No se pudo actualizar la orden' });
+  }
+
+  return res.json(data);
+});
+
+// ── PATCH /api/ordenes/:id/entregar ──────────────────────────────────────────
+// El cadete marca la orden como entregada y actualiza sus ganancias
+router.patch('/:id/entregar', async (req, res) => {
+  const { id }       = req.params;
+  const { cadete_id } = req.body;
+
+  if (!cadete_id) {
+    return res.status(400).json({ error: 'cadete_id es requerido' });
+  }
+
+  const { data: orden, error: errorBuscar } = await supabase
+    .from('ordenes')
+    .select('id, estado, cadete_id, precio, cliente_id')
+    .eq('id', id)
+    .single();
+
+  if (errorBuscar || !orden) {
+    return res.status(404).json({ error: 'Orden no encontrada' });
+  }
+  if (orden.cadete_id !== cadete_id) {
+    return res.status(403).json({ error: 'No es tu orden' });
+  }
+  if (!['asignada', 'en_camino'].includes(orden.estado)) {
+    return res.status(409).json({ error: `Estado inválido: ${orden.estado}` });
+  }
+
+  const precio = orden.precio ?? 0;
+
+  // Leer ganancias/viajes actuales del cadete para incrementar atómicamente
+  const { data: cadete } = await supabase
+    .from('cadetes')
+    .select('ganancias_hoy, ganancias_semana, ganancias_mes, viajes_hoy, viajes_semana, viajes_mes')
+    .eq('id', cadete_id)
+    .single();
+
+  const [resOrden, resCadete] = await Promise.all([
+    supabase
+      .from('ordenes')
+      .update({ estado: 'entregada', entregada_en: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single(),
+
+    supabase
+      .from('cadetes')
+      .update({
+        estado:           'disponible',
+        ganancias_hoy:    (cadete?.ganancias_hoy    ?? 0) + precio,
+        ganancias_semana: (cadete?.ganancias_semana ?? 0) + precio,
+        ganancias_mes:    (cadete?.ganancias_mes    ?? 0) + precio,
+        viajes_hoy:       (cadete?.viajes_hoy       ?? 0) + 1,
+        viajes_semana:    (cadete?.viajes_semana    ?? 0) + 1,
+        viajes_mes:       (cadete?.viajes_mes       ?? 0) + 1,
+      })
+      .eq('id', cadete_id),
+  ]);
+
+  if (resOrden.error) {
+    console.error('[PATCH /api/ordenes/:id/entregar] orden:', resOrden.error.message);
+    return res.status(500).json({ error: 'No se pudo actualizar la orden' });
+  }
+  if (resCadete.error) {
+    console.error('[PATCH /api/ordenes/:id/entregar] cadete:', resCadete.error.message);
+  }
+
+  // Incrementar veces_usado del cliente si aplica
+  if (orden.cliente_id) {
+    const { data: clienteData } = await supabase
+      .from('clientes')
+      .select('veces_usado')
+      .eq('id', orden.cliente_id)
+      .single();
+    await supabase
+      .from('clientes')
+      .update({ veces_usado: (clienteData?.veces_usado ?? 0) + 1 })
+      .eq('id', orden.cliente_id);
   }
 
   return res.json(resOrden.data);
