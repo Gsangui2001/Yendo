@@ -42,6 +42,21 @@ export default function NotificacionesPedidos({ cadete, onAceptar }) {
     tocarAlarma();
   }, []);
 
+  // ── Buscar pedidos pendientes existentes al conectarse ──────────────────
+  useEffect(() => {
+    async function buscarPendientes() {
+      const { data } = await supabase
+        .from('ordenes')
+        .select('*')
+        .eq('estado', 'pendiente')
+        .order('creado_en', { ascending: true })
+        .limit(1);
+
+      if (data?.length) mostrarPedido(data[0]);
+    }
+    buscarPendientes();
+  }, [mostrarPedido]);
+
   // ── Supabase Realtime: escuchar INSERT en ordenes pendientes ─────────────
   useEffect(() => {
     const channel = supabase
@@ -50,18 +65,13 @@ export default function NotificacionesPedidos({ cadete, onAceptar }) {
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'ordenes' },
         ({ new: nuevoPedido }) => {
-          // Filtrar por zona del cadete (particulares llegan a cualquier zona)
-          const esDeZona     = nuevoPedido.zona === cadete.zona;
-          const esParticular = nuevoPedido.tipo === 'particular';
-          if ((esDeZona || esParticular) && nuevoPedido.estado === 'pendiente') {
-            mostrarPedido(nuevoPedido);
-          }
+          if (nuevoPedido.estado === 'pendiente') mostrarPedido(nuevoPedido);
         }
       )
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [cadete.zona, mostrarPedido]);
+  }, [mostrarPedido]);
 
   // ── Countdown: auto-rechaza al llegar a 0 ───────────────────────────────
   useEffect(() => {
