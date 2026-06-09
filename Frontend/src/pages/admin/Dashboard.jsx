@@ -82,9 +82,9 @@ export default function AdminApp({ perfil, page, setPage }) {
     const off    = cadetes.filter(c => c.estado === 'offline');
     const ratingProm = cadetes.length ? (4.6 + Math.random()*0.3).toFixed(1) : '—';
     return (
-      <div className="space-y-6">
+      <div className="space-y-6 animate-fade-in">
         <AdminHeader perfil={perfil} titulo="Cadetes" sub="Gestioná y monitoreá a los cadetes en tiempo real"
-          accion={<button onClick={() => setPage('nuevo-cadete')} className="bg-green-600 text-white px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-green-700">+ Agregar cadete</button>} />
+          accion={<button onClick={() => setPage('nuevo-cadete')} className="btn-primary px-4 py-2.5 text-sm ripple">+ Agregar cadete</button>} />
 
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
           <StatCard2 icon="🚴" tint="green"  label="Activos"      value={disp.length + ruta.length} delta="cadetes" up />
@@ -196,7 +196,7 @@ export default function AdminApp({ perfil, page, setPage }) {
     return (
     <div className="space-y-6">
       <AdminHeader perfil={perfil} titulo="Comercios" sub="Gestioná y monitoreá todos los comercios asociados a Yendo"
-        accion={<button onClick={() => setPage('nuevo-comercio')} className="bg-green-600 text-white px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-green-700">+ Agregar comercio</button>} />
+        accion={<button onClick={() => setPage('nuevo-comercio')} className="btn-primary px-4 py-2.5 text-sm ripple">+ Agregar comercio</button>} />
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard2 icon="🏪" tint="green"  label="Comercios activos" value={activosC.length} delta="activos" up />
         <StatCard2 icon="📦" tint="blue"   label="Pedidos totales"   value={ordenes.filter(o=>o.tipo==='comercio').length} delta="histórico" up />
@@ -596,7 +596,7 @@ function TablaPrecios({ perfil, zonas, onUpdate }) {
   return (
     <div className="space-y-6">
       <AdminHeader perfil={perfil} titulo="Precios y Tarifas" sub="Configurá las tarifas de envío y otros cargos de la plataforma"
-        accion={<button onClick={() => setShowNueva(true)} className="bg-green-600 text-white px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-green-700">+ Nueva tarifa</button>} />
+        accion={<button onClick={() => setShowNueva(true)} className="btn-primary px-4 py-2.5 text-sm ripple">+ Nueva tarifa</button>} />
 
       {/* Tabs */}
       <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit">
@@ -715,9 +715,12 @@ function TablaPrecios({ perfil, zonas, onUpdate }) {
 
 function Modal({ titulo, onClose, children }) {
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
-        <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-lg">{titulo}</h3><button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button></div>
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in-fast">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-lift-lg animate-bounce-in">
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="font-bold text-lg text-gray-900">{titulo}</h3>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-xl text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all text-xl leading-none active:scale-90">×</button>
+        </div>
         {children}
       </div>
     </div>
@@ -728,41 +731,50 @@ function Modal({ titulo, onClose, children }) {
 function StatCard({ label, value, color }) {
   const colors = { green: 'text-green-600', blue: 'text-blue-600', red: 'text-red-500', gray: 'text-gray-700' };
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 p-4">
-      <p className="text-xs text-gray-400 font-medium mb-1">{label}</p>
-      <p className={`text-3xl font-bold ${colors[color]}`}>{value}</p>
+    <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift">
+      <p className="text-xs text-gray-400 font-medium mb-1 uppercase tracking-wide">{label}</p>
+      <p className={`text-3xl font-extrabold ${colors[color]}`}>{value}</p>
     </div>
   );
 }
 
 const SPARK_ADMIN = "M2 18 L10 14 L18 16 L26 9 L34 11 L42 4";
-function StatCard2({ icon, tint, label, value, delta, up }) {
+function StatCard2({ icon, tint, label, value, delta, up, idx = 0 }) {
   const tints = { green: 'bg-green-100', blue: 'bg-blue-100', purple: 'bg-purple-100', amber: 'bg-amber-100', gray: 'bg-gray-100' };
+  const strokes = { green: '#22C55E', blue: '#3B82F6', purple: '#A855F7', amber: '#F59E0B', gray: '#9CA3AF' };
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 p-5">
+    <div
+      style={{ animationDelay: `${idx * 60}ms` }}
+      className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lift hover:border-gray-200 animate-slide-up cursor-default"
+    >
       <div className="flex items-start justify-between">
-        <div className={`w-11 h-11 rounded-xl ${tints[tint]} flex items-center justify-center text-xl`}>{icon}</div>
-        <svg viewBox="0 0 44 22" className="w-16 h-8"><path d={SPARK_ADMIN} fill="none" stroke={up ? '#22C55E' : '#9CA3AF'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+        <div className={`w-11 h-11 rounded-xl ${tints[tint]} flex items-center justify-center text-xl transition-transform duration-200 hover:scale-110`}>{icon}</div>
+        <svg viewBox="0 0 44 22" className="w-16 h-8 opacity-70">
+          <path d={SPARK_ADMIN} fill="none" stroke={up ? (strokes[tint] ?? '#22C55E') : '#9CA3AF'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
       </div>
-      <p className="text-sm text-gray-400 mt-3">{label}</p>
-      <p className="text-2xl font-extrabold text-gray-900">{value}</p>
-      <p className={`text-xs font-semibold mt-0.5 ${up ? 'text-green-600' : 'text-gray-400'}`}>{up && '↗ '}{delta}</p>
+      <p className="text-xs text-gray-400 mt-3 uppercase tracking-wide font-medium">{label}</p>
+      <p className="text-2xl font-extrabold text-gray-900 mt-0.5">{value}</p>
+      <p className={`text-xs font-semibold mt-1 ${up ? 'text-green-600' : 'text-gray-400'}`}>{up && '↗ '}{delta}</p>
     </div>
   );
 }
 function AdminHeader({ perfil, titulo, sub, accion }) {
   const initials = (perfil?.nombre ?? 'A').split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase();
   return (
-    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 animate-slide-up">
       <div>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900">{titulo}</h1>
-        {sub && <p className="text-sm text-gray-400 capitalize">{sub}</p>}
+        {sub && <p className="text-sm text-gray-400 mt-0.5">{sub}</p>}
       </div>
       <div className="flex items-center gap-3">
         {accion}
-        <div className="hidden sm:flex items-center gap-2 bg-white border border-gray-100 rounded-xl px-3 py-2">
-          <div className="w-8 h-8 rounded-full bg-green-600 text-white flex items-center justify-center text-xs font-bold">{initials}</div>
-          <div className="pr-1"><p className="text-sm font-bold text-gray-800 leading-tight">{perfil?.nombre?.split(' ')[0]}</p><p className="text-xs text-green-600">Admin</p></div>
+        <div className="hidden sm:flex items-center gap-2 bg-white border border-gray-100 rounded-xl px-3 py-2 shadow-sm">
+          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-green-500 to-green-700 text-white flex items-center justify-center text-xs font-bold ring-2 ring-green-100">{initials}</div>
+          <div className="pr-1">
+            <p className="text-sm font-bold text-gray-800 leading-tight">{perfil?.nombre?.split(' ')[0]}</p>
+            <p className="text-xs text-green-600 font-medium">Admin</p>
+          </div>
         </div>
       </div>
     </div>
@@ -770,18 +782,35 @@ function AdminHeader({ perfil, titulo, sub, accion }) {
 }
 function Avatar({ nombre }) {
   const initials = (nombre ?? 'U').split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase();
-  return <div className="w-9 h-9 rounded-full bg-green-600 text-white flex items-center justify-center font-bold text-xs flex-shrink-0">{initials}</div>;
+  return <div className="w-9 h-9 rounded-full bg-gradient-to-br from-green-500 to-green-700 text-white flex items-center justify-center font-bold text-xs flex-shrink-0 shadow-sm">{initials}</div>;
 }
 function MiniStat({ label, value }) {
-  return <div className="bg-gray-50 rounded-xl p-3 text-center"><p className="text-xl font-bold text-gray-900">{value}</p><p className="text-xs text-gray-400">{label}</p></div>;
+  return (
+    <div className="bg-gray-50 rounded-xl p-3 text-center hover:bg-gray-100 transition-colors cursor-default">
+      <p className="text-xl font-extrabold text-gray-900">{value}</p>
+      <p className="text-xs text-gray-400">{label}</p>
+    </div>
+  );
 }
-function Empty({ texto }) { return <p className="text-sm text-gray-400 text-center py-8 col-span-full">{texto}</p>; }
-function Spinner() { return <div className="flex items-center justify-center h-64"><div className="w-8 h-8 border-4 border-green-500 border-t-transparent rounded-full animate-spin"/></div>; }
+function Empty({ texto }) {
+  return <p className="text-sm text-gray-400 text-center py-10 col-span-full">{texto}</p>;
+}
+function Spinner() {
+  return (
+    <div className="flex flex-col items-center justify-center h-64 gap-3">
+      <div className="relative w-12 h-12">
+        <div className="absolute inset-0 rounded-full border-4 border-green-100" />
+        <div className="absolute inset-0 rounded-full border-4 border-green-500 border-t-transparent animate-spin" />
+      </div>
+      <p className="text-sm text-gray-400 font-medium">Cargando...</p>
+    </div>
+  );
+}
 function Campo({ label, ...props }) {
   return (
     <div>
       <label className="block text-sm font-semibold text-gray-700 mb-1.5">{label}</label>
-      <input {...props} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+      <input {...props} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all hover:border-gray-300 placeholder:text-gray-400" />
     </div>
   );
 }

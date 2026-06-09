@@ -12,19 +12,12 @@ const ZONAS = [
   { value: 'pueblo_liebig',     label: 'Pueblo Liebig',     precio: 8500 },
 ];
 
-const ESTADO_CHIP = {
-  pendiente: 'bg-amber-100 text-amber-700',
-  asignada:  'bg-blue-100 text-blue-700',
-  en_camino: 'bg-blue-100 text-blue-700',
-  entregada: 'bg-green-100 text-green-700',
-  cancelada: 'bg-red-100 text-red-500',
-};
-const ESTADO_LABEL = {
-  pendiente: 'Buscando cadete',
-  asignada:  'Cadete asignado',
-  en_camino: 'En camino',
-  entregada: 'Entregado',
-  cancelada: 'Cancelado',
+const ESTADO_CONFIG = {
+  pendiente: { chip: 'bg-amber-100 text-amber-700 ring-1 ring-amber-200',  label: 'Buscando cadete', dot: 'bg-amber-400 animate-pulse' },
+  asignada:  { chip: 'bg-blue-100 text-blue-700 ring-1 ring-blue-200',    label: 'Cadete asignado', dot: 'bg-blue-400' },
+  en_camino: { chip: 'bg-blue-100 text-blue-700 ring-1 ring-blue-200',    label: 'En camino',       dot: 'bg-blue-500 animate-pulse' },
+  entregada: { chip: 'bg-green-100 text-green-700 ring-1 ring-green-200', label: 'Entregado',       dot: 'bg-green-500' },
+  cancelada: { chip: 'bg-red-100 text-red-600 ring-1 ring-red-200',       label: 'Cancelado',       dot: 'bg-red-400' },
 };
 
 const fmt = n => (n ?? 0).toLocaleString('es-AR');
@@ -91,129 +84,184 @@ export default function ComercioApp({ perfil, page, setPage }) {
   const activas    = ordenes.filter(o => ['pendiente','asignada','en_camino'].includes(o.estado));
   const entregadasHoy = hoy.filter(o => o.estado === 'entregada');
   const facturacionHoy = entregadasHoy.reduce((s, o) => s + (Number(o.precio) || 0), 0);
-  const nombreCorto = comercio?.nombre?.split(' ')[0] ?? 'Comercio';
+  const nombre = comercio?.nombre ?? perfil?.nombre ?? 'Comercio';
 
-  // ── NUEVO PEDIDO ──
+  // ── NUEVO PEDIDO ──────────────────────────────────────────────────────────
   if (page === 'pedido') return (
-    <>
-      <Header perfil={perfil} comercio={comercio} cadetes={cadetes} setPage={setPage} />
+    <div className="animate-fade-in">
+      <PageHeader titulo="Nuevo pedido" sub="Creá un pedido para tu comercio" onBack={() => setPage('inicio')} />
       <Pedido comercioId={comercio?.id} onSuccess={() => { setPage('inicio'); cargarOrdenes(); }} />
-    </>
+    </div>
   );
 
-  // ── HISTORIAL ──
+  // ── HISTORIAL ─────────────────────────────────────────────────────────────
   if (page === 'historial') return (
-    <>
-      <Header perfil={perfil} comercio={comercio} cadetes={cadetes} setPage={setPage} />
-      <div className="bg-white rounded-2xl border border-gray-100 p-6">
-        <h2 className="text-lg font-bold mb-1">Pedidos</h2>
-        <p className="text-sm text-gray-400 mb-5">Gestioná todos los pedidos de tu comercio</p>
+    <div className="animate-fade-in space-y-5">
+      <PageHeader titulo="Pedidos" sub="Historial completo de pedidos" onBack={() => setPage('inicio')} />
+      <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
         <TablaOrdenes ordenes={ordenes} />
       </div>
-    </>
+    </div>
   );
 
-  // ── CLIENTES ──
+  // ── CLIENTES ──────────────────────────────────────────────────────────────
   if (page === 'clientes') return (
-    <>
-      <Header perfil={perfil} comercio={comercio} cadetes={cadetes} setPage={setPage} />
-      <div className="bg-white rounded-2xl border border-gray-100 p-6">
-        <div className="flex items-center justify-between mb-5">
-          <div><h2 className="text-lg font-bold">Clientes</h2><p className="text-sm text-gray-400">Gestioná tus clientes y su historial</p></div>
-          <button onClick={() => setShowModal(true)} className="bg-green-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-green-700">+ Nuevo cliente</button>
-        </div>
-        {clientes.length === 0 ? <Empty texto="No tenés clientes guardados aún" />
-          : <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {clientes.map(c => (
-                <div key={c.id} className="border border-gray-100 rounded-2xl p-4 flex justify-between items-start hover:shadow-sm transition-shadow">
-                  <div className="flex gap-3">
-                    <Avatar nombre={c.nombre} />
-                    <div>
-                      <p className="font-semibold text-gray-900">{c.nombre}</p>
-                      {c.telefono && <p className="text-xs text-gray-500">{c.telefono}</p>}
-                      {c.direccion && <p className="text-xs text-gray-400">{c.direccion}</p>}
-                      <p className="text-xs text-green-600 font-semibold mt-1">{c.veces_usado ?? 0} pedidos</p>
-                    </div>
-                  </div>
-                  <button onClick={() => eliminarCliente(c.id)} className="text-gray-300 hover:text-red-400 text-lg">×</button>
-                </div>
-              ))}
-            </div>}
+    <div className="animate-fade-in space-y-5">
+      <div className="flex items-start justify-between">
+        <PageHeader titulo="Clientes" sub="Gestioná tus clientes y su historial" onBack={() => setPage('inicio')} />
+        <Btn onClick={() => setShowModal(true)} icon="➕">Nuevo cliente</Btn>
       </div>
+      {clientes.length === 0
+        ? <Empty texto="No tenés clientes guardados aún" icon="👥" />
+        : <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 stagger">
+            {clientes.map((c, i) => (
+              <div
+                key={c.id}
+                style={{ animationDelay: `${i * 50}ms` }}
+                className="bg-white border border-gray-100 rounded-2xl p-4 flex justify-between items-start shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lift hover:border-gray-200 animate-slide-up group"
+              >
+                <div className="flex gap-3">
+                  <Avatar nombre={c.nombre} />
+                  <div>
+                    <p className="font-semibold text-gray-900">{c.nombre}</p>
+                    {c.telefono && <p className="text-xs text-gray-500 mt-0.5">{c.telefono}</p>}
+                    {c.direccion && <p className="text-xs text-gray-400">{c.direccion}</p>}
+                    <p className="text-xs text-green-600 font-bold mt-1.5">{c.veces_usado ?? 0} pedidos</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => eliminarCliente(c.id)}
+                  className="text-gray-300 hover:text-red-400 text-lg leading-none w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-50 transition-all duration-200 opacity-0 group-hover:opacity-100"
+                >×</button>
+              </div>
+            ))}
+          </div>}
       {showModal && (
         <Modal titulo="Nuevo cliente" onClose={() => setShowModal(false)}>
           <form onSubmit={guardarCliente} className="space-y-4">
-            <Campo label="Nombre *" value={newCliente.nombre} onChange={v => setNewCliente(p => ({...p, nombre: v}))} placeholder="Ej: Hospital Central" />
-            <Campo label="Teléfono" value={newCliente.telefono} onChange={v => setNewCliente(p => ({...p, telefono: v}))} placeholder="+54 11 ..." />
-            <Campo label="Dirección" value={newCliente.direccion} onChange={v => setNewCliente(p => ({...p, direccion: v}))} placeholder="Calle y número" />
+            <Campo label="Nombre *"    value={newCliente.nombre}    onChange={v => setNewCliente(p => ({...p, nombre: v}))}    placeholder="Ej: Hospital Central" />
+            <Campo label="Teléfono"    value={newCliente.telefono}  onChange={v => setNewCliente(p => ({...p, telefono: v}))}  placeholder="+54 345 ..." />
+            <Campo label="Dirección"   value={newCliente.direccion} onChange={v => setNewCliente(p => ({...p, direccion: v}))} placeholder="Calle y número" />
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Zona habitual</label>
-              <select value={newCliente.zona} onChange={e => setNewCliente(p => ({...p, zona: e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm">
+              <select value={newCliente.zona} onChange={e => setNewCliente(p => ({...p, zona: e.target.value}))} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
                 <option value="">Sin zona</option>{ZONAS.map(z => <option key={z.value} value={z.value}>{z.label}</option>)}
               </select>
             </div>
-            <button type="submit" disabled={savingCliente} className="w-full bg-green-600 text-white py-3 rounded-xl font-semibold hover:bg-green-700 disabled:opacity-60">{savingCliente ? 'Guardando...' : 'Guardar cliente'}</button>
+            <Btn type="submit" disabled={savingCliente} full>
+              {savingCliente ? 'Guardando...' : 'Guardar cliente'}
+            </Btn>
           </form>
         </Modal>
       )}
-    </>
+    </div>
   );
 
-  // ── INICIO ──
+  // ── INICIO ────────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-6">
-      <Header perfil={perfil} comercio={comercio} cadetes={cadetes} setPage={setPage} saludo />
-
-      {/* Stat cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <StatCard icon="📦" tint="green"  label="Pedidos hoy"     value={hoy.length}             delta={`+${hoy.length} hoy`} up />
-        <StatCard icon="💵" tint="green"  label="Facturación hoy" value={`$${fmt(facturacionHoy)}`} delta="entregados" up />
-        <StatCard icon="⏱️" tint="purple" label="Pedidos activos" value={activas.length}         delta="en curso" />
-        <StatCard icon="⭐" tint="amber"  label="Clientes"        value={clientes.length}        delta="guardados" up />
+    <div className="space-y-6 animate-fade-in">
+      {/* Header saludo */}
+      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+        <div className="animate-slide-up">
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 flex items-center gap-2">
+            Hola, {nombre} <span className="animate-float inline-block">👋</span>
+          </h1>
+          <p className="text-sm text-gray-400 capitalize mt-0.5">
+            {new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })}
+          </p>
+          {cadetes.length > 0 && (
+            <div className="inline-flex items-center gap-2 mt-3 bg-green-50 text-green-700 text-xs font-bold px-3 py-1.5 rounded-full border border-green-100">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+              </span>
+              {cadetes.length} cadetes disponibles cerca tuyo
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          <Btn onClick={() => setPage('pedido')} icon="+" size="lg">Nuevo pedido</Btn>
+          <div className="hidden sm:flex items-center gap-2 bg-white border border-gray-100 rounded-xl px-3 py-2 shadow-sm">
+            <Avatar nombre={nombre} />
+            <div className="pr-1">
+              <p className="text-sm font-bold text-gray-800 leading-tight">{nombre}</p>
+              <p className="text-xs text-green-600 font-medium">Comercio</p>
+            </div>
+          </div>
+        </div>
       </div>
 
+      {/* Stat cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 stagger">
+        <StatCard icon="📦" tint="green"  label="Pedidos hoy"     value={hoy.length}                  delta={`+${hoy.length} hoy`}    up  idx={0} />
+        <StatCard icon="💵" tint="green"  label="Facturación hoy" value={`$${fmt(facturacionHoy)}`}   delta="entregados"               up  idx={1} />
+        <StatCard icon="⏱️" tint="blue"   label="Pedidos activos" value={activas.length}              delta="en curso"                      idx={2} />
+        <StatCard icon="⭐" tint="amber"  label="Clientes"        value={clientes.length}             delta="guardados"                up  idx={3} />
+      </div>
+
+      {/* Pedidos activos + Cadetes */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-        {/* Pedidos activos */}
-        <div className="xl:col-span-2 bg-white rounded-2xl border border-gray-100 p-5">
+        <div className="xl:col-span-2 bg-white rounded-2xl border border-gray-100 p-5 shadow-sm transition-all duration-200 hover:shadow-md animate-slide-up" style={{ animationDelay: '150ms' }}>
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold text-gray-900">Pedidos activos</h3>
-            <button onClick={() => setPage('pedido')} className="bg-green-600 text-white px-4 py-1.5 rounded-lg text-sm font-semibold hover:bg-green-700">+ Nuevo pedido</button>
+            <div>
+              <h3 className="font-bold text-gray-900">Pedidos activos</h3>
+              {activas.length > 0 && <p className="text-xs text-gray-400 mt-0.5">{activas.length} en curso ahora</p>}
+            </div>
+            <Btn onClick={() => setPage('pedido')} size="sm" icon="+">Nuevo pedido</Btn>
           </div>
           {activas.length === 0
-            ? <p className="text-sm text-gray-400 py-8 text-center">No hay pedidos activos</p>
-            : <div className="space-y-2">
-                {activas.map(o => (
-                  <div key={o.id} className="flex items-center justify-between p-3 rounded-xl hover:bg-gray-50 transition-colors">
-                    <div className="flex items-center gap-3">
-                      <div className="text-xs font-bold text-gray-400 w-12">#{o.id.slice(0,4)}</div>
-                      <div>
-                        <p className="font-semibold text-gray-800 text-sm">{o.cliente_nombre ?? '—'}</p>
-                        <p className="text-xs text-gray-400">{o.direccion ?? o.zona_label ?? '—'}</p>
+            ? <Empty texto="No hay pedidos activos" icon="📭" />
+            : <div className="space-y-1">
+                {activas.map((o, i) => {
+                  const cfg = ESTADO_CONFIG[o.estado] ?? {};
+                  return (
+                    <div key={o.id} style={{ animationDelay: `${i * 60}ms` }}
+                      className="flex items-center justify-between px-3 py-3 rounded-xl hover:bg-gray-50 transition-all duration-150 group animate-fade-in cursor-default">
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs font-bold text-gray-300 w-12">#{o.id.slice(0,4).toUpperCase()}</span>
+                        <div>
+                          <p className="font-semibold text-gray-800 text-sm">{o.cliente_nombre ?? '—'}</p>
+                          <p className="text-xs text-gray-400">{o.direccion ?? o.zona_label ?? '—'}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className={`badge ${cfg.chip}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+                          {cfg.label}
+                        </span>
+                        <span className="text-sm font-extrabold text-gray-900 w-16 text-right">${fmt(o.precio)}</span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-4">
-                      <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${ESTADO_CHIP[o.estado]}`}>{ESTADO_LABEL[o.estado]}</span>
-                      <span className="text-sm font-bold text-gray-900 w-16 text-right">${fmt(o.precio)}</span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>}
-          <button onClick={() => setPage('historial')} className="w-full text-center text-sm text-green-600 font-semibold mt-4 pt-3 border-t border-gray-50">Ver todos los pedidos →</button>
+          <button
+            onClick={() => setPage('historial')}
+            className="w-full text-center text-sm text-green-600 font-bold mt-4 pt-3 border-t border-gray-50 hover:text-green-700 transition-colors"
+          >
+            Ver todos los pedidos →
+          </button>
         </div>
 
         {/* Cadetes disponibles */}
-        <div className="bg-white rounded-2xl border border-gray-100 p-5">
+        <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm animate-slide-up" style={{ animationDelay: '200ms' }}>
           <h3 className="font-bold text-gray-900 mb-4">Cadetes disponibles</h3>
           {cadetes.length === 0
             ? <p className="text-sm text-gray-400 py-4 text-center">Sin cadetes disponibles</p>
             : <div className="space-y-3">
                 {cadetes.map((c, i) => (
-                  <div key={c.id} className="flex items-center justify-between">
+                  <div key={c.id} className="flex items-center justify-between p-2 rounded-xl hover:bg-gray-50 transition-colors">
                     <div className="flex items-center gap-3">
                       <Avatar nombre={c.nombre} />
                       <div>
                         <p className="font-semibold text-sm text-gray-800">{c.nombre}</p>
-                        <p className="text-xs text-green-600 font-medium flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-500"/>Disponible</p>
+                        <p className="text-xs text-green-600 font-medium flex items-center gap-1">
+                          <span className="relative flex h-1.5 w-1.5">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500" />
+                          </span>
+                          Disponible
+                        </p>
                       </div>
                     </div>
                     <div className="text-right">
@@ -223,86 +271,66 @@ export default function ComercioApp({ perfil, page, setPage }) {
                   </div>
                 ))}
               </div>}
-          <div className="mt-4 bg-green-50 rounded-xl p-3 flex items-center gap-3">
-            <span className="text-xl">🚲</span>
-            <div><p className="text-xs text-gray-500">Tiempo estimado de envío</p><p className="text-sm font-bold text-green-700">7 - 10 minutos</p></div>
+          <div className="mt-4 bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-3 flex items-center gap-3 border border-green-100">
+            <span className="text-2xl animate-float inline-block">🚲</span>
+            <div>
+              <p className="text-xs text-gray-500">Tiempo estimado de envío</p>
+              <p className="text-sm font-bold text-green-700">7 - 10 minutos</p>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Fila inferior: clientes frecuentes + ventas */}
+      {/* Fila inferior */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <div className="bg-white rounded-2xl border border-gray-100 p-5">
+        {/* Clientes frecuentes */}
+        <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm animate-slide-up" style={{ animationDelay: '250ms' }}>
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-bold text-gray-900">Clientes frecuentes</h3>
-            <button onClick={() => setPage('clientes')} className="text-sm text-green-600 font-semibold">Ver todos →</button>
+            <button onClick={() => setPage('clientes')} className="text-sm text-green-600 font-bold hover:text-green-700 transition-colors">
+              Ver todos →
+            </button>
           </div>
           {clientes.slice(0,3).length === 0
-            ? <p className="text-sm text-gray-400 py-4 text-center">Sin clientes aún</p>
+            ? <Empty texto="Sin clientes aún" icon="👥" />
             : <div className="space-y-3">
                 {clientes.slice(0,3).map(c => (
-                  <div key={c.id} className="flex items-center justify-between">
-                    <div className="flex items-center gap-3"><Avatar nombre={c.nombre} />
-                      <div><p className="font-semibold text-sm text-gray-800">{c.nombre}</p><p className="text-xs text-gray-400">{c.veces_usado ?? 0} pedidos</p></div>
+                  <div key={c.id} className="flex items-center justify-between p-2 rounded-xl hover:bg-gray-50 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <Avatar nombre={c.nombre} />
+                      <div>
+                        <p className="font-semibold text-sm text-gray-800">{c.nombre}</p>
+                        <p className="text-xs text-gray-400">{c.veces_usado ?? 0} pedidos</p>
+                      </div>
                     </div>
                   </div>
                 ))}
               </div>}
         </div>
 
-        <div className="bg-white rounded-2xl border border-gray-100 p-5">
-          <div className="flex items-center justify-between mb-1">
-            <h3 className="font-bold text-gray-900">Resumen</h3>
-          </div>
-          <p className="text-3xl font-extrabold text-gray-900 mt-2">${fmt(ordenes.filter(o=>o.estado==='entregada').reduce((s,o)=>s+(Number(o.precio)||0),0))}</p>
-          <p className="text-sm text-gray-400">Facturación total entregada</p>
+        {/* Resumen facturación */}
+        <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm animate-slide-up" style={{ animationDelay: '300ms' }}>
+          <h3 className="font-bold text-gray-900 mb-2">Resumen de facturación</h3>
+          <p className="text-3xl font-extrabold text-gray-900 mt-2">
+            ${fmt(ordenes.filter(o=>o.estado==='entregada').reduce((s,o)=>s+(Number(o.precio)||0),0))}
+          </p>
+          <p className="text-sm text-gray-400">Total entregado</p>
           <div className="grid grid-cols-3 gap-3 mt-4">
-            <MiniStat label="Total pedidos" value={ordenes.length} />
-            <MiniStat label="Entregados" value={ordenes.filter(o=>o.estado==='entregada').length} />
-            <MiniStat label="Activos" value={activas.length} />
+            <MiniStat label="Total" value={ordenes.length} icon="📊" />
+            <MiniStat label="Entregados" value={ordenes.filter(o=>o.estado==='entregada').length} icon="✅" />
+            <MiniStat label="Activos" value={activas.length} icon="⏱️" />
           </div>
         </div>
       </div>
 
       {/* Acciones rápidas */}
-      <div>
+      <div className="animate-slide-up" style={{ animationDelay: '350ms' }}>
         <h3 className="font-bold text-gray-900 mb-3">Acciones rápidas</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <QuickAction icon="➕" titulo="Nuevo pedido" sub="Hacé un pedido" tint="green"  onClick={() => setPage('pedido')} />
-          <QuickAction icon="👥" titulo="Clientes"     sub="Gestioná clientes" tint="blue" onClick={() => setPage('clientes')} />
-          <QuickAction icon="📋" titulo="Pedidos"      sub="Ver historial" tint="purple" onClick={() => setPage('historial')} />
-          <QuickAction icon="➕" titulo="Crear pedido" sub="Para tu cliente" tint="amber" onClick={() => setPage('pedido')} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Header superior ──────────────────────────────────────────────────────────
-function Header({ perfil, comercio, cadetes, setPage, saludo }) {
-  const fecha = new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
-  const hora  = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
-  const nombre = comercio?.nombre ?? perfil?.nombre ?? 'Comercio';
-  return (
-    <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-2">
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 flex items-center gap-2">
-          {saludo ? `Hola ${nombre}` : nombre} {saludo && <span>👋</span>}
-        </h1>
-        <p className="text-sm text-gray-400 capitalize">{fecha} · {hora}</p>
-        {saludo && cadetes.length > 0 && (
-          <div className="inline-flex items-center gap-2 mt-3 bg-green-50 text-green-700 text-xs font-semibold px-3 py-1.5 rounded-full">
-            <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"/>{cadetes.length} cadetes disponibles cerca tuyo
-          </div>
-        )}
-      </div>
-      <div className="flex items-center gap-3">
-        <button onClick={() => setPage('pedido')} className="bg-green-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-green-700 transition-colors flex items-center gap-2">
-          <span className="text-lg leading-none">+</span> Nuevo pedido
-        </button>
-        <div className="hidden sm:flex items-center gap-2 bg-white border border-gray-100 rounded-xl px-3 py-2">
-          <Avatar nombre={nombre} />
-          <div className="pr-1"><p className="text-sm font-bold text-gray-800 leading-tight">{nombre}</p><p className="text-xs text-green-600">Comercio</p></div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 stagger">
+          <QuickAction icon="➕" titulo="Nuevo pedido"  sub="Hacé un pedido"     tint="green"  onClick={() => setPage('pedido')}    idx={0} />
+          <QuickAction icon="👥" titulo="Clientes"      sub="Gestioná clientes"  tint="blue"   onClick={() => setPage('clientes')}  idx={1} />
+          <QuickAction icon="📋" titulo="Pedidos"       sub="Ver historial"      tint="purple" onClick={() => setPage('historial')} idx={2} />
+          <QuickAction icon="📦" titulo="Saldo"         sub="Tu presupuesto"     tint="amber"  onClick={() => {}}                   idx={3} />
         </div>
       </div>
     </div>
@@ -310,78 +338,199 @@ function Header({ perfil, comercio, cadetes, setPage, saludo }) {
 }
 
 // ── Componentes ──────────────────────────────────────────────────────────────
-const SPARK = "M2 18 L10 14 L18 16 L26 9 L34 11 L42 4";
-function StatCard({ icon, tint, label, value, delta, up }) {
-  const tints = { green: 'bg-green-100', blue: 'bg-blue-100', purple: 'bg-purple-100', amber: 'bg-amber-100' };
-  const stroke = up ? '#22C55E' : '#9CA3AF';
+
+function PageHeader({ titulo, sub, onBack }) {
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 p-5">
-      <div className="flex items-start justify-between">
-        <div className={`w-11 h-11 rounded-xl ${tints[tint]} flex items-center justify-center text-xl`}>{icon}</div>
-        <svg viewBox="0 0 44 22" className="w-16 h-8"><path d={SPARK} fill="none" stroke={stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-      </div>
-      <p className="text-sm text-gray-400 mt-3">{label}</p>
-      <p className="text-2xl font-extrabold text-gray-900">{value}</p>
-      <p className={`text-xs font-semibold mt-0.5 ${up ? 'text-green-600' : 'text-gray-400'}`}>{up && '↗ '}{delta}</p>
+    <div className="mb-5 animate-slide-up">
+      {onBack && (
+        <button onClick={onBack} className="text-sm text-gray-400 hover:text-gray-700 flex items-center gap-1 mb-3 transition-all hover:-translate-x-0.5">
+          ← Volver al inicio
+        </button>
+      )}
+      <h1 className="text-2xl font-extrabold text-gray-900">{titulo}</h1>
+      {sub && <p className="text-sm text-gray-400 mt-0.5">{sub}</p>}
     </div>
   );
 }
-function MiniStat({ label, value }) {
-  return <div className="bg-gray-50 rounded-xl p-3 text-center"><p className="text-xl font-bold text-gray-900">{value}</p><p className="text-xs text-gray-400">{label}</p></div>;
-}
-function QuickAction({ icon, titulo, sub, tint, onClick }) {
-  const tints = { green: 'bg-green-100', blue: 'bg-blue-100', purple: 'bg-purple-100', amber: 'bg-amber-100' };
+
+function Btn({ children, onClick, icon, size = 'md', full = false, type = 'button', disabled = false }) {
+  const sizes = {
+    sm:  'px-3 py-1.5 text-xs',
+    md:  'px-4 py-2 text-sm',
+    lg:  'px-5 py-2.5 text-sm',
+  };
   return (
-    <button onClick={onClick} className="bg-white border border-gray-100 rounded-2xl p-4 text-left hover:shadow-md transition-shadow">
-      <div className={`w-10 h-10 rounded-xl ${tints[tint]} flex items-center justify-center text-lg mb-3`}>{icon}</div>
-      <p className="font-bold text-sm text-gray-800">{titulo}</p>
-      <p className="text-xs text-gray-400">{sub}</p>
+    <button
+      type={type}
+      onClick={onClick}
+      disabled={disabled}
+      className={`
+        ${full ? 'w-full' : ''}
+        ${sizes[size]}
+        btn-primary ripple font-bold
+        disabled:opacity-60 disabled:cursor-not-allowed disabled:translate-y-0
+      `}
+    >
+      {icon && <span className="text-base leading-none">{icon}</span>}
+      {children}
     </button>
   );
 }
+
+const SPARK = "M2 18 L10 14 L18 16 L26 9 L34 11 L42 4";
+const TINT_MAP = {
+  green:  { bg: 'bg-green-50',  icon: 'bg-green-100',  text: 'text-green-700', stroke: '#22C55E' },
+  blue:   { bg: 'bg-blue-50',   icon: 'bg-blue-100',   text: 'text-blue-700',  stroke: '#3B82F6' },
+  purple: { bg: 'bg-purple-50', icon: 'bg-purple-100', text: 'text-purple-700',stroke: '#A855F7' },
+  amber:  { bg: 'bg-amber-50',  icon: 'bg-amber-100',  text: 'text-amber-700', stroke: '#F59E0B' },
+};
+
+function StatCard({ icon, tint, label, value, delta, up, idx = 0 }) {
+  const t = TINT_MAP[tint] ?? TINT_MAP.green;
+  return (
+    <div
+      style={{ animationDelay: `${idx * 60}ms` }}
+      className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lift hover:border-gray-200 animate-slide-up cursor-default"
+    >
+      <div className="flex items-start justify-between">
+        <div className={`w-11 h-11 rounded-xl ${t.icon} flex items-center justify-center text-xl transition-transform duration-200 hover:scale-110`}>
+          {icon}
+        </div>
+        <svg viewBox="0 0 44 22" className="w-16 h-8 opacity-70">
+          <path d={SPARK} fill="none" stroke={up ? t.stroke : '#9CA3AF'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </div>
+      <p className="text-xs text-gray-400 mt-3 uppercase tracking-wide font-medium">{label}</p>
+      <p className="text-2xl font-extrabold text-gray-900 mt-0.5 animate-count-up">{value}</p>
+      <p className={`text-xs font-semibold mt-1 flex items-center gap-1 ${up ? t.text : 'text-gray-400'}`}>
+        {up && '↗'} {delta}
+      </p>
+    </div>
+  );
+}
+
+function MiniStat({ label, value, icon }) {
+  return (
+    <div className="bg-gray-50 rounded-xl p-3 text-center hover:bg-gray-100 transition-colors cursor-default">
+      {icon && <p className="text-lg mb-1">{icon}</p>}
+      <p className="text-xl font-extrabold text-gray-900">{value}</p>
+      <p className="text-xs text-gray-400">{label}</p>
+    </div>
+  );
+}
+
+function QuickAction({ icon, titulo, sub, tint, onClick, idx = 0 }) {
+  const t = TINT_MAP[tint] ?? TINT_MAP.green;
+  return (
+    <button
+      onClick={onClick}
+      style={{ animationDelay: `${idx * 60}ms` }}
+      className="bg-white border border-gray-100 rounded-2xl p-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lift hover:border-gray-200 active:scale-95 group animate-slide-up"
+    >
+      <div className={`w-11 h-11 rounded-xl ${t.icon} flex items-center justify-center text-xl mb-3 transition-transform duration-200 group-hover:scale-110`}>
+        {icon}
+      </div>
+      <p className="font-bold text-sm text-gray-800">{titulo}</p>
+      <p className="text-xs text-gray-400 mt-0.5">{sub}</p>
+    </button>
+  );
+}
+
 function Avatar({ nombre }) {
   const initials = (nombre ?? 'U').split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase();
-  return <div className="w-9 h-9 rounded-full bg-green-600 text-white flex items-center justify-center font-bold text-xs flex-shrink-0">{initials}</div>;
+  return (
+    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-green-500 to-green-700 text-white flex items-center justify-center font-bold text-xs flex-shrink-0 shadow-sm">
+      {initials}
+    </div>
+  );
 }
+
 function TablaOrdenes({ ordenes }) {
-  if (!ordenes.length) return <Empty texto="Sin pedidos" />;
+  if (!ordenes.length) return <Empty texto="Sin pedidos" icon="📭" />;
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
-        <thead><tr className="text-xs text-gray-400 uppercase border-b border-gray-100">
-          <th className="text-left pb-3 pr-4">Pedido</th><th className="text-left pb-3 pr-4">Cliente</th>
-          <th className="text-left pb-3 pr-4 hidden sm:table-cell">Zona</th><th className="text-left pb-3 pr-4">Monto</th><th className="text-left pb-3">Estado</th>
-        </tr></thead>
+        <thead>
+          <tr className="text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100">
+            <th className="text-left pb-3 pr-4">Pedido</th>
+            <th className="text-left pb-3 pr-4">Cliente</th>
+            <th className="text-left pb-3 pr-4 hidden sm:table-cell">Zona</th>
+            <th className="text-left pb-3 pr-4">Monto</th>
+            <th className="text-left pb-3">Estado</th>
+          </tr>
+        </thead>
         <tbody>
-          {ordenes.map(o => (
-            <tr key={o.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50">
-              <td className="py-3 pr-4 font-bold text-gray-400">#{o.id.slice(0,4)}</td>
-              <td className="py-3 pr-4 font-semibold text-gray-800">{o.cliente_nombre ?? '—'}</td>
-              <td className="py-3 pr-4 text-gray-500 hidden sm:table-cell">{o.zona_label ?? '—'}</td>
-              <td className="py-3 pr-4 font-bold text-gray-900">${fmt(o.precio)}</td>
-              <td className="py-3"><span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${ESTADO_CHIP[o.estado]}`}>{ESTADO_LABEL[o.estado]}</span></td>
-            </tr>
-          ))}
+          {ordenes.map((o, i) => {
+            const cfg = ESTADO_CONFIG[o.estado] ?? {};
+            return (
+              <tr key={o.id} style={{ animationDelay: `${i * 30}ms` }} className="border-b border-gray-50 last:border-0 table-row-hover animate-fade-in">
+                <td className="py-3 pr-4 font-bold text-gray-300">#{o.id.slice(0,4).toUpperCase()}</td>
+                <td className="py-3 pr-4 font-semibold text-gray-800">{o.cliente_nombre ?? '—'}</td>
+                <td className="py-3 pr-4 text-gray-500 hidden sm:table-cell">{o.zona_label ?? '—'}</td>
+                <td className="py-3 pr-4 font-extrabold text-gray-900">${fmt(o.precio)}</td>
+                <td className="py-3">
+                  <span className={`badge ${cfg.chip}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+                    {cfg.label}
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
   );
 }
-function Empty({ texto }) { return <p className="text-sm text-gray-400 text-center py-8">{texto}</p>; }
-function Spinner() { return <div className="flex items-center justify-center h-64"><div className="w-8 h-8 border-4 border-green-500 border-t-transparent rounded-full animate-spin"/></div>; }
+
+function Empty({ texto, icon }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-10 gap-2 text-gray-400">
+      {icon && <span className="text-3xl opacity-40">{icon}</span>}
+      <p className="text-sm">{texto}</p>
+    </div>
+  );
+}
+
+function Spinner() {
+  return (
+    <div className="flex flex-col items-center justify-center h-64 gap-3">
+      <div className="relative w-12 h-12">
+        <div className="absolute inset-0 rounded-full border-4 border-green-100" />
+        <div className="absolute inset-0 rounded-full border-4 border-green-500 border-t-transparent animate-spin" />
+      </div>
+      <p className="text-sm text-gray-400 font-medium">Cargando...</p>
+    </div>
+  );
+}
+
 function Modal({ titulo, onClose, children }) {
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
-        <div className="flex items-center justify-between mb-4"><h3 className="font-bold text-lg">{titulo}</h3><button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button></div>
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in-fast">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-lift-lg animate-bounce-in">
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="font-bold text-lg text-gray-900">{titulo}</h3>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 flex items-center justify-center rounded-xl text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all text-xl leading-none active:scale-90"
+          >×</button>
+        </div>
         {children}
       </div>
     </div>
   );
 }
+
 function Campo({ label, value, onChange, placeholder }) {
   return (
-    <div><label className="block text-sm font-semibold text-gray-700 mb-1">{label}</label>
-      <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" /></div>
+    <div>
+      <label className="block text-sm font-semibold text-gray-700 mb-1">{label}</label>
+      <input
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all hover:border-gray-300 placeholder:text-gray-400"
+      />
+    </div>
   );
 }

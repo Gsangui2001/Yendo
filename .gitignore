@@ -5,3 +5,7 @@ dist/
 build/
 .vercel
 *.log
+
+# Tooling local (skills descargadas) — no es parte de la app
+.agents/
+skills-lock.json

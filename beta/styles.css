@@ -2,8 +2,9 @@
   --green: #16a34a;
   --green-dark: #0f7a37;
   --green-soft: #eaf8f0;
-  --violet: #6d28d9;
-  --violet-soft: #f3e8ff;
+  /* Acentos unificados al verde de marca Yendo (antes violeta) */
+  --violet: #0f7a37;
+  --violet-soft: #eaf8f0;
   --ink: #101827;
   --muted: #667085;
   --line: #e6e9ef;
@@ -183,10 +184,10 @@ textarea:focus-visible {
 
 .account-card {
   padding: 16px;
-  border: 1px solid rgba(109, 40, 217, 0.14);
+  border: 1px solid rgba(22, 163, 74, 0.14);
   border-radius: 16px;
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(243, 232, 255, 0.68));
+    linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(234, 248, 240, 0.68));
 }
 
 .account-card span,
@@ -222,11 +223,11 @@ textarea:focus-visible {
 
 [data-role="cadete"] .account-card,
 [data-role="admin"] .account-card {
-  border-color: rgba(109, 40, 217, 0.18);
+  border-color: rgba(22, 163, 74, 0.18);
 }
 
 [data-role="admin"] .sidebar-action:first-child {
-  border-color: rgba(109, 40, 217, 0.24);
+  border-color: rgba(22, 163, 74, 0.24);
   color: var(--violet);
 }
 
@@ -588,9 +589,9 @@ h3 {
 }
 
 .admin-summary article {
-  border-color: rgba(109, 40, 217, 0.16);
+  border-color: rgba(22, 163, 74, 0.16);
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(243, 232, 255, 0.72));
+    linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(234, 248, 240, 0.72));
 }
 
 .courier-hero {
@@ -600,11 +601,11 @@ h3 {
   gap: 18px;
   margin-bottom: 16px;
   padding: 18px;
-  border: 1px solid rgba(109, 40, 217, 0.16);
+  border: 1px solid rgba(22, 163, 74, 0.16);
   border-radius: 16px;
   background:
     radial-gradient(circle at top left, rgba(22, 163, 74, 0.14), transparent 34%),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(243, 232, 255, 0.78));
+    linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(234, 248, 240, 0.78));
 }
 
 .courier-hero h2 {
@@ -904,7 +905,7 @@ textarea {
 }
 
 .queue-card.violet {
-  border-color: rgba(109, 40, 217, 0.18);
+  border-color: rgba(22, 163, 74, 0.18);
   background: var(--violet-soft);
 }
 
@@ -986,6 +987,12 @@ textarea {
 .toast.is-visible {
   opacity: 1;
   transform: translateY(0);
+}
+
+/* Mapa todavía no conectado a datos: se oculta hasta implementarlo.
+   (no se borra del HTML para poder reactivarlo fácil) */
+.map-board {
+  display: none;
 }
 
 @keyframes softIn {
@@ -1096,3 +1103,226 @@ textarea {
     justify-content: flex-start;
   }
 }
+
+/* ============================================================
+   ADMIN — Finanzas y rendimiento de cadetes (faltaba el CSS)
+   ============================================================ */
+.finance-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  margin: 4px 0 18px;
+}
+.finance-card {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--white);
+  box-shadow: var(--soft-shadow);
+}
+.finance-card > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.finance-card > strong {
+  color: var(--ink);
+  font-family: var(--font-head);
+  font-size: 24px;
+  line-height: 1.05;
+}
+.finance-card > small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* variantes de color (unificadas a la marca) */
+.finance-card.green {
+  border-color: rgba(22, 163, 74, 0.2);
+  background: var(--green-soft);
+}
+.finance-card.green > strong { color: var(--green-dark); }
+.finance-card.primary {
+  border-color: transparent;
+  background: var(--green);
+}
+.finance-card.primary > span,
+.finance-card.primary > small { color: rgba(255, 255, 255, 0.82); }
+.finance-card.primary > strong { color: #fff; }
+.finance-card.dark {
+  border-color: transparent;
+  background: var(--ink);
+}
+.finance-card.dark > span,
+.finance-card.dark > small { color: rgba(255, 255, 255, 0.7); }
+.finance-card.dark > strong { color: #fff; }
+.finance-card.red {
+  border-color: rgba(220, 38, 38, 0.18);
+  background: #fff1f2;
+}
+.finance-card.red > strong { color: var(--red); }
+.finance-card.violet {
+  border-color: rgba(22, 163, 74, 0.18);
+  background: var(--green-soft);
+}
+.finance-card.violet > strong { color: var(--green-dark); }
+.finance-card.neutral { background: #fbfcfd; }
+
+/* card resumen (ocupa todo el ancho) */
+.finance-card.finance-overview {
+  grid-column: 1 / -1;
+  gap: 12px;
+}
+.finance-card.finance-overview > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+.finance-card.finance-overview > div:first-child > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.finance-card.finance-overview > div:first-child > strong {
+  font-family: var(--font-head);
+  font-size: 30px;
+  line-height: 1;
+}
+.finance-card.finance-overview > div:first-child > small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.finance-card.finance-overview p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.finance-card.finance-overview > small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* barra distribución Yendo / cadete */
+.finance-bar {
+  display: flex;
+  height: 26px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface);
+}
+.finance-bar span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 900;
+  color: #fff;
+  white-space: nowrap;
+}
+.finance-yendo { background: var(--green); }
+.finance-courier { background: var(--green-dark); }
+
+/* Rendimiento de cadetes */
+.performance-panel {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 12px;
+  margin: 4px 0 6px;
+}
+.performance-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--white);
+  box-shadow: var(--soft-shadow);
+}
+.performance-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.performance-card-head strong { font-weight: 900; }
+.performance-card-head span {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--green-soft);
+  color: var(--green-dark);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.performance-facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.performance-money {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.performance-facts span,
+.performance-money span {
+  display: grid;
+  gap: 2px;
+  padding: 8px;
+  border-radius: 10px;
+  background: var(--surface);
+  min-width: 0;
+}
+.performance-facts small,
+.performance-money small {
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.performance-facts strong,
+.performance-money strong {
+  font-size: 15px;
+}
+
+@media (max-width: 680px) {
+  .performance-facts { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* Aviso de ubicación del cadete */
+.location-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--green-soft);
+  background: var(--green-soft);
+}
+.location-notice > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.location-notice strong {
+  font-weight: 800;
+  font-size: 13.5px;
+}
+.location-notice span {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.location-notice.has-error {
+  border-color: rgba(220, 38, 38, 0.22);
+  background: rgba(254, 226, 226, 0.55);
+}
+.location-notice.has-error strong { color: #b91c1c; }
+.location-notice.has-error span { color: #c2554f; }
+.location-notice .ghost-button { flex-shrink: 0; }

@@ -2,5 +2,138 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Variables de marca ─────────────────────────────────────── */
+:root {
+  --green:      #22c55e;
+  --green-dark: #15803d;
+  --green-glow: rgba(34, 197, 94, 0.25);
+  --shadow-lift: 0 8px 24px -4px rgba(0,0,0,0.12), 0 2px 8px -2px rgba(0,0,0,0.08);
+}
+
 * { box-sizing: border-box; }
-body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Scrollbar elegante ─────────────────────────────────────── */
+::-webkit-scrollbar       { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+
+/* ── Botón primario con shimmer ─────────────────────────────── */
+@layer components {
+  .btn-primary {
+    @apply relative overflow-hidden inline-flex items-center justify-center gap-2
+           bg-green-600 text-white font-bold rounded-xl
+           transition-all duration-200 ease-out
+           hover:bg-green-700 hover:-translate-y-0.5 hover:shadow-lift
+           active:translate-y-0 active:scale-95;
+  }
+  .btn-primary::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.18) 50%, transparent 60%);
+    background-size: 200% auto;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .btn-primary:hover::after {
+    opacity: 1;
+    animation: shimmer 0.7s ease-out forwards;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2
+           border border-gray-200 text-gray-600 font-semibold rounded-xl bg-white
+           transition-all duration-200 ease-out
+           hover:border-gray-300 hover:bg-gray-50 hover:-translate-y-0.5 hover:shadow-sm
+           active:translate-y-0 active:scale-95;
+  }
+
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2
+           text-red-500 font-semibold rounded-xl
+           transition-all duration-200 ease-out
+           hover:bg-red-50 hover:text-red-600
+           active:scale-95;
+  }
+
+  .card {
+    @apply bg-white rounded-2xl border border-gray-100 p-5
+           transition-all duration-200 ease-out;
+  }
+
+  .card-hover {
+    @apply card hover:-translate-y-1 hover:shadow-lift hover:border-gray-200;
+  }
+
+  .input-field {
+    @apply w-full px-4 py-3 border border-gray-200 rounded-xl text-sm bg-white
+           transition-all duration-200
+           focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent
+           placeholder:text-gray-400;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold;
+  }
+}
+
+/* ── Shimmer animation ──────────────────────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+/* ── Stagger children fade-in ───────────────────────────────── */
+.stagger > *:nth-child(1) { animation-delay: 0ms; }
+.stagger > *:nth-child(2) { animation-delay: 60ms; }
+.stagger > *:nth-child(3) { animation-delay: 120ms; }
+.stagger > *:nth-child(4) { animation-delay: 180ms; }
+.stagger > *:nth-child(5) { animation-delay: 240ms; }
+.stagger > *:nth-child(6) { animation-delay: 300ms; }
+
+/* ── Ripple en botones ──────────────────────────────────────── */
+.ripple {
+  position: relative;
+  overflow: hidden;
+}
+.ripple::before {
+  content: '';
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  top: 0; left: 0;
+  background: radial-gradient(circle, rgba(255,255,255,0.3) 0%, transparent 70%);
+  transform: scale(0);
+  transition: transform 0.4s ease-out, opacity 0.4s;
+  opacity: 0;
+}
+.ripple:active::before {
+  transform: scale(2.5);
+  opacity: 1;
+  transition: 0s;
+}
+
+/* ── Highlight en hover de filas de tabla ───────────────────── */
+.table-row-hover {
+  transition: background-color 0.15s ease;
+}
+.table-row-hover:hover {
+  background-color: #f8fafc;
+}
+
+/* ── Gradient mesh fondo auth ───────────────────────────────── */
+.auth-bg {
+  background-color: #f0fdf4;
+  background-image:
+    radial-gradient(ellipse at 20% 50%, rgba(34,197,94,0.08) 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 20%, rgba(21,128,61,0.06) 0%, transparent 50%),
+    radial-gradient(ellipse at 60% 80%, rgba(34,197,94,0.05) 0%, transparent 50%);
+}
