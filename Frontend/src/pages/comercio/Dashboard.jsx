@@ -297,10 +297,6 @@ function Header({ perfil, comercio, cadetes, setPage, saludo }) {
         )}
       </div>
       <div className="flex items-center gap-3">
-        <div className="hidden sm:block bg-white border border-gray-100 rounded-xl px-4 py-2">
-          <p className="text-xs text-gray-400">Presupuesto</p>
-          <p className="text-sm font-bold text-green-600">${(Number(comercio?.saldo) || 0).toLocaleString('es-AR')}</p>
-        </div>
         <button onClick={() => setPage('pedido')} className="bg-green-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-green-700 transition-colors flex items-center gap-2">
           <span className="text-lg leading-none">+</span> Nuevo pedido
         </button>

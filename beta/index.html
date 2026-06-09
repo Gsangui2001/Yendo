@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Yendo Beta</title>
+    <meta name="description" content="Beta operativa de Yendo para clientes, cadetes, privados y administración.">
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="./config.js"></script>
+    <script defer src="./app.js"></script>
+  </head>
+  <body>
+    <section class="login-screen" id="loginScreen">
+      <div class="login-card">
+        <div class="login-brand">
+          <img class="brand-logo" src="./logo-yendo-header.png" alt="">
+          <div>
+            <strong>Yendo</strong>
+            <span>Ingreso beta</span>
+          </div>
+        </div>
+
+        <div class="login-copy">
+          <p class="eyebrow">Acceso por perfil</p>
+          <h1>Entrá y vas directo a tu dashboard.</h1>
+          <p>Ingresá con tu cuenta de prueba. Si Supabase está configurado, el rol se detecta automáticamente.</p>
+        </div>
+
+        <form class="login-form" id="loginForm">
+          <label>
+            Ingresá como
+            <select id="loginRole" name="loginRole" required>
+              <option value="privado">Privado</option>
+              <option value="comercio">Comercio</option>
+              <option value="cadete">Cadete</option>
+              <option value="admin">Administrador</option>
+            </select>
+          </label>
+          <label>
+            Email
+            <input id="loginEmail" name="loginEmail" type="email" autocomplete="email" required value="demo@yendo.com.ar">
+          </label>
+          <label>
+            Contraseña
+            <input id="loginPassword" name="loginPassword" type="password" autocomplete="current-password" required value="yendo123">
+          </label>
+          <p class="login-hint" id="loginHint">Modo demo local activo.</p>
+          <button class="primary-button" type="submit">Ingresar</button>
+        </form>
+      </div>
+    </section>
+
+    <div class="app-frame is-locked" id="appFrame">
+      <aside class="sidebar">
+        <a class="brand" href="./" aria-label="Yendo Beta">
+          <img class="brand-logo" src="./logo-yendo-header.png" alt="">
+          <span>
+            <strong>Yendo</strong>
+            <small>Beta operativa</small>
+          </span>
+        </a>
+
+        <div class="account-card">
+          <span>Cuenta activa</span>
+          <strong id="sidebarRoleName">Cliente</strong>
+          <small id="sidebarRoleHelp">Panel privado de operación.</small>
+        </div>
+
+        <nav class="sidebar-actions" aria-label="Acciones de la cuenta">
+          <button class="sidebar-action" data-quick="primaryRoleAction" type="button">Acción principal</button>
+          <button class="sidebar-action" data-quick="scrollToOrders" type="button">Ver movimientos</button>
+        </nav>
+
+        <div class="pilot-card">
+          <span>Zona piloto</span>
+          <strong>Colón, Entre Ríos</strong>
+          <small>Precios por zona activos para demo.</small>
+        </div>
+        <button class="logout-button" id="logoutButton" type="button">Cerrar sesión</button>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow" id="currentRoleTitle">Cliente</p>
+            <h1 id="dashboardTitle">Panel operativo</h1>
+            <p id="currentRoleHelp">Crea pedidos y revisa su avance.</p>
+          </div>
+          <div class="status-chip">
+            <span></span>
+            Sistema activo
+          </div>
+        </header>
+
+        <section class="metrics" aria-label="Resumen operativo">
+          <article>
+            <span id="metricOpenLabel">Disponibles</span>
+            <strong id="metricOpen">0</strong>
+          </article>
+          <article>
+            <span id="metricActiveLabel">Activos</span>
+            <strong id="metricActive">0</strong>
+          </article>
+          <article>
+            <span id="metricDoneLabel">Entregados</span>
+            <strong id="metricDone">0</strong>
+          </article>
+        </section>
+
+        <section class="flow-board" aria-label="Flujo de pedidos">
+          <div class="flow-line" id="flowLine"></div>
+          <aside class="activity-panel">
+            <div class="section-head compact-head">
+              <div>
+                <h2>Actividad en vivo</h2>
+                <p>Lo último que pasó en la beta.</p>
+              </div>
+            </div>
+            <div class="activity-list" id="activityList"></div>
+          </aside>
+        </section>
+
+        <section class="map-board" aria-label="Mapa operativo">
+          <div class="map-shell">
+            <div class="map-canvas" id="liveMap"></div>
+          </div>
+          <aside class="map-panel">
+            <p class="eyebrow">Mapa en tiempo real</p>
+            <h2 id="mapTitle">Seguimiento del envío</h2>
+            <p id="mapHelp">Seleccioná un pedido para ver ruta, cadete y próxima dirección.</p>
+            <div class="map-detail" id="mapDetail"></div>
+            <div class="button-row map-actions">
+              <button class="primary-button" data-quick="navigateSelectedOrder" type="button">Abrir ruta</button>
+              <button class="ghost-button" data-quick="focusTrackedOrder" type="button">Ver pedido</button>
+            </div>
+          </aside>
+        </section>
+
+        <section class="view is-visible" data-view="comercio">
+          <div class="role-summary">
+            <article>
+              <span>Pedidos creados</span>
+              <strong id="clientCreated">0</strong>
+            </article>
+            <article>
+              <span>En curso</span>
+              <strong id="clientActive">0</strong>
+            </article>
+            <article>
+              <span>Entregados</span>
+              <strong id="clientDelivered">0</strong>
+            </article>
+            <article>
+              <span>Gasto estimado</span>
+              <strong id="clientSpent">$0</strong>
+            </article>
+          </div>
+
+          <div class="section-head">
+            <div>
+              <h2>Pedir cadete</h2>
+              <p>Cargá lo mínimo, publicalo rápido y después seguí el estado.</p>
+            </div>
+            <div class="button-row">
+              <button class="primary-button" data-quick="createFastBusinessOrder" type="button">Pedido rápido</button>
+              <button class="ghost-button" id="seedOrdersButton" type="button">Cargar ejemplo</button>
+            </div>
+          </div>
+
+          <div class="quick-panel">
+            <div>
+              <span>Acceso rápido</span>
+              <strong>Completá retiro, entrega y contacto. El resto queda con valores seguros.</strong>
+            </div>
+            <div class="quick-actions">
+              <button class="ghost-button" data-quick="fillBusinessUsual" type="button">Pedido habitual</button>
+              <button class="ghost-button" data-quick="setBusinessUrgent" type="button">Marcar urgente</button>
+            </div>
+          </div>
+
+          <form class="order-form" id="orderForm">
+            <label>
+              Comercio
+              <input id="businessName" name="businessName" autocomplete="organization" required value="La Cocina de Ana">
+            </label>
+            <label>
+              Contacto
+              <input id="businessContact" name="businessContact" inputmode="tel" required placeholder="WhatsApp o teléfono">
+            </label>
+            <label>
+              Retiro
+              <input id="pickupAddress" name="pickupAddress" autocomplete="street-address" required placeholder="Dirección de retiro">
+            </label>
+            <label>
+              Entrega
+              <input id="dropoffAddress" name="dropoffAddress" autocomplete="street-address" required placeholder="Dirección de entrega">
+            </label>
+            <label>
+              Zona
+              <select id="zone" name="zone" required></select>
+            </label>
+            <label>
+              Quién paga
+              <select id="paymentMethod" name="paymentMethod" required>
+                <option value="paga_cliente">Paga cliente</option>
+                <option value="paga_comercio">Paga comercio</option>
+                <option value="efectivo">Efectivo</option>
+                <option value="transferencia">Transferencia</option>
+              </select>
+            </label>
+            <label>
+              Prioridad
+              <select id="priority" name="priority" required>
+                <option value="normal">Normal</option>
+                <option value="urgente">Urgente</option>
+              </select>
+            </label>
+            <label>
+              Referencia
+              <input id="reference" name="reference" placeholder="Piso, portería, indicaciones">
+            </label>
+            <label class="span-2">
+              Nota para el cadete
+              <textarea id="notes" name="notes" rows="3" placeholder="Detalle del paquete o instrucciones"></textarea>
+            </label>
+            <p class="price-hint span-2" id="priceHint">Precio del envío: <strong>$3.000</strong></p>
+            <button class="primary-button span-2" type="submit">Publicar pedido</button>
+          </form>
+
+          <div class="section-head compact">
+            <div>
+              <h2>Mis pedidos</h2>
+              <p>Seguimiento de pedidos creados desde este cliente.</p>
+            </div>
+          </div>
+          <div class="order-list" id="businessOrders"></div>
+        </section>
+
+        <section class="view" data-view="cadete">
+          <div class="courier-hero">
+            <div>
+              <p class="eyebrow">Estado del cadete</p>
+              <h2 id="courierStatusTitle">Disponible para tomar pedidos</h2>
+              <p id="courierStatusHelp">Estás visible para comercios y privados.</p>
+            </div>
+            <button class="ghost-button" id="availabilityButton" type="button" aria-pressed="true">Disponible</button>
+          </div>
+
+          <div class="role-summary">
+            <article>
+              <span>Pedidos disponibles</span>
+              <strong id="courierAvailableCount">0</strong>
+            </article>
+            <article>
+              <span>En curso</span>
+              <strong id="courierActiveCount">0</strong>
+            </article>
+            <article>
+              <span>Realizados</span>
+              <strong id="courierDoneCount">0</strong>
+            </article>
+            <article>
+              <span>Ganancia estimada</span>
+              <strong id="courierEarnings">$0</strong>
+            </article>
+          </div>
+
+          <div class="section-head">
+            <div>
+              <h2>Mi entrega activa</h2>
+              <p>Avanzá el estado sin buscar dentro de toda la lista.</p>
+            </div>
+            <div class="button-row">
+              <button class="primary-button" data-quick="advanceCourierOrder" type="button">Avanzar entrega</button>
+            </div>
+          </div>
+          <div class="order-list active-delivery-list" id="courierActiveOrders"></div>
+
+          <div class="section-head compact">
+            <div>
+              <h2>Pedidos disponibles</h2>
+              <p>Tomá el próximo pedido con un toque.</p>
+            </div>
+            <div class="button-row">
+              <button class="primary-button" data-quick="acceptFirstAvailable" type="button">Tomar próximo</button>
+            </div>
+          </div>
+          <div class="order-list" id="courierOrders"></div>
+
+          <div class="section-head compact">
+            <div>
+              <h2>Realizados hoy</h2>
+              <p>Historial simple de entregas cerradas por el cadete beta.</p>
+            </div>
+          </div>
+          <div class="order-list" id="courierCompletedOrders"></div>
+        </section>
+
+        <section class="view" data-view="privado">
+          <div class="role-summary">
+            <article>
+              <span>Solicitudes</span>
+              <strong id="privateCreated">0</strong>
+            </article>
+            <article>
+              <span>Activas</span>
+              <strong id="privateActive">0</strong>
+            </article>
+            <article>
+              <span>Entregadas</span>
+              <strong id="privateDelivered">0</strong>
+            </article>
+            <article>
+              <span>Precio estimado</span>
+              <strong id="privateEstimate">$0</strong>
+            </article>
+          </div>
+
+          <div class="section-head">
+            <div>
+              <h2>Solicitud puntual</h2>
+              <p>Para personas que necesitan enviar, buscar o hacer un trámite.</p>
+            </div>
+            <button class="ghost-button" data-quick="fillPrivateExample" type="button">Completar ejemplo</button>
+          </div>
+          <form class="order-form" id="privateOrderForm">
+            <label>
+              Tipo de solicitud
+              <select id="privateRequestType" name="privateRequestType" required>
+                <option value="envio">Enviar paquete</option>
+                <option value="compra">Buscar una compra</option>
+                <option value="tramite">Hacer un trámite</option>
+                <option value="urgente">Urgente</option>
+              </select>
+            </label>
+            <label>
+              Nombre
+              <input id="privateName" name="privateName" autocomplete="name" required placeholder="Tu nombre">
+            </label>
+            <label>
+              Teléfono
+              <input id="privatePhone" name="privatePhone" inputmode="tel" required placeholder="Contacto">
+            </label>
+            <label>
+              Retiro
+              <input id="privatePickup" name="privatePickup" required placeholder="Dirección de retiro">
+            </label>
+            <label>
+              Entrega
+              <input id="privateDropoff" name="privateDropoff" required placeholder="Dirección de entrega">
+            </label>
+            <label>
+              Zona
+              <select id="privateZone" name="privateZone" required></select>
+            </label>
+            <button class="primary-button span-2" type="submit">Solicitar cadete</button>
+          </form>
+        </section>
+
+        <section class="view" data-view="admin">
+          <div class="role-summary admin-summary">
+            <article>
+              <span>Total pedidos</span>
+              <strong id="adminTotalCount">0</strong>
+            </article>
+            <article>
+              <span>Activos</span>
+              <strong id="adminActiveCount">0</strong>
+            </article>
+            <article>
+              <span>Cadetes demo</span>
+              <strong id="adminCourierCount">3</strong>
+            </article>
+            <article>
+              <span>Facturación demo</span>
+              <strong id="adminRevenue">$0</strong>
+            </article>
+          </div>
+
+          <div class="section-head">
+            <div>
+              <h2>Control operativo</h2>
+              <p>Monitoreo de pedidos, estados y alertas del piloto.</p>
+            </div>
+            <div class="button-row">
+              <button class="ghost-button" data-quick="createUrgentDemo" type="button">Simular urgente</button>
+              <select id="statusFilter" aria-label="Filtrar por estado">
+                <option value="all">Todos</option>
+                <option value="available">Disponibles</option>
+                <option value="accepted">Aceptados</option>
+                <option value="picked_up">Retirados</option>
+                <option value="in_transit">En camino</option>
+                <option value="delivered">Entregados</option>
+                <option value="cancelled">Cancelados</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="admin-queues" id="adminQueues"></div>
+
+          <div class="admin-grid">
+            <div class="order-list" id="adminOrders"></div>
+            <aside class="insight-panel">
+              <h3>Resumen operativo</h3>
+              <div class="admin-stats" id="adminStats"></div>
+              <h3>App / web</h3>
+              <div class="system-grid" id="adminSystem"></div>
+              <h3>Alertas</h3>
+              <ul id="adminAlerts"></ul>
+            </aside>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>

@@ -1,0 +1,272 @@
+{
+  "main": {
+    "id": "fbdee967e03d2ab0",
+    "type": "split",
+    "children": [
+      {
+        "id": "bf81ef71df65957a",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "3a9c663042ab816e",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "usuario.md.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "usuario.md"
+            }
+          },
+          {
+            "id": "49a3febe5b6577ad",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "CM.md.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "CM.md"
+            }
+          },
+          {
+            "id": "78c1c0e652a298ad",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "usuario.md.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "usuario.md"
+            }
+          },
+          {
+            "id": "5f81c31de278e0b9",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "README.md.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "README.md"
+            }
+          }
+        ],
+        "currentTab": 3
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "2fc6c18121665769",
+    "type": "split",
+    "children": [
+      {
+        "id": "49177abc91acafe7",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "367d8552eb2a4269",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Explorador de archivos"
+            }
+          },
+          {
+            "id": "e56a516abae3cb2e",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Buscar"
+            }
+          },
+          {
+            "id": "cbcb31b1ffcaf846",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Marcadores"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "4516bb50dd867a9a",
+    "type": "split",
+    "children": [
+      {
+        "id": "40347792fce04b4b",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "4d6335583cd343c1",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Enlaces entrantes"
+            }
+          },
+          {
+            "id": "2c45b819d2cd84ff",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Enlaces salientes"
+            }
+          },
+          {
+            "id": "87f24c0891537c7e",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Etiquetas"
+            }
+          },
+          {
+            "id": "2d728d873a800210",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "Todas las propiedades"
+            }
+          },
+          {
+            "id": "1118b334b5242c55",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "arquitectura-general.md.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Esquema de arquitectura-general.md"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Abrir selector rápido": false,
+      "graph:Abrir vista gráfica": false,
+      "canvas:Crear nuevo lienzo": false,
+      "daily-notes:Abrir la nota de hoy": false,
+      "templates:Insertar plantilla": false,
+      "command-palette:Abrir paleta de comandos": false,
+      "bases:Crear nueva base": false
+    }
+  },
+  "active": "5f81c31de278e0b9",
+  "lastOpenFiles": [
+    "node_modules/ms/license.md",
+    "Estrategia.md.md",
+    "guia-uso.md.md",
+    "matching-prioridad.md.md",
+    "README.md.md",
+    "prompts-comunes.md.md",
+    "usuario.md.md",
+    "alter table public.comercios add column if not exists saldo numeric(12,2) default 0; alter table public.comercios add column if not exists categoria text;usuario.md 1.md",
+    "CM.md.md",
+    "CLAUDE.md.md",
+    "README.md.md",
+    "CLAUDE.md",
+    "arquitectura-general.md 1.md",
+    "Backend 1/node_modules/desktop.ini",
+    "Backend 1/node_modules/@supabase/supabase-js/src/lib/rest/types/common/rpc.ts",
+    "Backend 1/node_modules/@supabase/supabase-js/src/lib/rest/types/common/common.ts",
+    "Backend 1/node_modules/@supabase/supabase-js/src/lib/rest/types/common",
+    "Backend 1/node_modules/@supabase/auth-js/dist/module/lib/web3/ethereum.d.ts.map",
+    "Backend 1/node_modules/@supabase/auth-js/dist/main/lib/web3/solana.d.ts.map",
+    "Backend 1/node_modules/@supabase/auth-js/dist/main/lib/web3/solana.d.ts",
+    "Backend 1/node_modules/@supabase/auth-js/dist/main/lib/web3/solana.js.map",
+    "Backend 1/node_modules/@supabase/auth-js/dist/main/lib/web3/solana.js",
+    "Backend 1/node_modules/@supabase/auth-js/dist/main/lib/web3/ethereum.js.map",
+    "Backend 1/node_modules/@supabase/phoenix/priv/static/phoenix.png",
+    "Backend 1/node_modules/@supabase/phoenix/priv/static/phoenix-orange.png",
+    "Backend 1/node_modules/send/node_modules/ms/readme.md",
+    "Backend 1/node_modules/send/node_modules/ms/license.md",
+    "Backend 1/node_modules/@supabase/storage-js/migrations/README.md",
+    "Backend 1/node_modules/@supabase/supabase-js/migrations/README.md",
+    "Backend 1/node_modules/@supabase/realtime-js/migrations/README.md",
+    "Backend 1/node_modules/@supabase/postgrest-js/migrations/README.md",
+    "Backend 1/node_modules/@supabase/functions-js/migrations/README.md",
+    "Backend 1/node_modules/@supabase/auth-js/migrations/lockless-coordination.md",
+    "Backend 1/node_modules/@supabase/auth-js/migrations/README.md",
+    "Backend 1/node_modules/@supabase/supabase-js/README.md",
+    "Backend 1/node_modules/@supabase/supabase-js/AGENTS.md",
+    "Backend 1/node_modules/@supabase/storage-js/README.md",
+    "Backend 1/node_modules/@supabase/storage-js/AGENTS.md",
+    "node_modules/@supabase/phoenix/priv/static/phoenix.png",
+    "node_modules/@supabase/phoenix/priv/static/phoenix-orange.png",
+    "Backend/node_modules/@supabase/phoenix/priv/static/phoenix.png",
+    "Backend/node_modules/@supabase/phoenix/priv/static/phoenix-orange.png"
+  ]
+}

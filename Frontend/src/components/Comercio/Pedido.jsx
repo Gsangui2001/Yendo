@@ -97,16 +97,7 @@ export default function Pedido({ comercioId, onSuccess }) {
     if (!validate()) return;
     setLoading(true);
     try {
-      // Verificar saldo suficiente
-      const { data: com } = await supabase.from('comercios').select('saldo').eq('id', comercioId).single();
-      const saldoActual = Number(com?.saldo) || 0;
       const precio = zonaData?.precio ?? 0;
-      if (saldoActual < precio) {
-        showToast(`Presupuesto insuficiente. Tenés $${saldoActual.toLocaleString('es-AR')} y el envío cuesta $${precio.toLocaleString('es-AR')}.`, 'error');
-        setLoading(false);
-        return;
-      }
-
       const cliente = clientes.find(c => c.id === form.clienteId);
       const { error } = await supabase.from('ordenes').insert({
         comercio_id:    comercioId,
@@ -122,8 +113,6 @@ export default function Pedido({ comercioId, onSuccess }) {
       });
       if (error) throw error;
 
-      // Descontar del presupuesto
-      await supabase.from('comercios').update({ saldo: saldoActual - precio }).eq('id', comercioId);
       // Incrementar veces_usado del cliente
       await supabase.from('clientes').update({ veces_usado: (cliente?.veces_usado ?? 0) + 1 }).eq('id', form.clienteId);
 

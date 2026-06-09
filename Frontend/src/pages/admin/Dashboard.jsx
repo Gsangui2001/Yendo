@@ -3,11 +3,9 @@ import { supabase } from '../../lib/supabaseClient';
 import { createClient } from '@supabase/supabase-js';
 
 // Cliente secundario para crear usuarios sin afectar la sesión del admin
-const sbAdmin = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY,
-  { auth: { persistSession: false, autoRefreshToken: false } }
-);
+const SB_URL = import.meta.env.VITE_SUPABASE_URL || 'https://gzcsvexfnfzwtmlayafb.supabase.co';
+const SB_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd6Y3N2ZXhmbmZ6d3RtbGF5YWZiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5NDI0NDQsImV4cCI6MjA5MzUxODQ0NH0.5-kUMR7PB10kOUzyKM8RvQae1S7NFG81LsKd1Lv7M_k';
+const sbAdmin = createClient(SB_URL, SB_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
 
 const ESTADO_CHIP = {
   pendiente: 'bg-amber-100 text-amber-700',
@@ -60,13 +58,13 @@ export default function AdminApp({ perfil, page, setPage }) {
     cargarCadetes();
   }
 
-  async function recargarSaldo(comercio) {
-    const monto = prompt(`Recargar presupuesto a ${comercio.nombre}\nSaldo actual: $${(Number(comercio.saldo)||0).toLocaleString('es-AR')}\n\nIngresá el monto a agregar:`);
-    if (monto === null) return;
-    const valor = parseFloat(monto);
-    if (isNaN(valor) || valor <= 0) { alert('Ingresá un monto válido'); return; }
-    const nuevoSaldo = (Number(comercio.saldo) || 0) + valor;
-    await supabase.from('comercios').update({ saldo: nuevoSaldo }).eq('id', comercio.id);
+  async function cambiarPlan(comercio) {
+    const opciones = 'sin_plan, diario, mensual, anual';
+    const nuevo = prompt(`Cambiar plan de ${comercio.nombre}\nPlan actual: ${comercio.plan ?? 'sin_plan'}\n\nEscribí el nuevo plan (${opciones}):`, comercio.plan ?? 'sin_plan');
+    if (nuevo === null) return;
+    const v = nuevo.trim().toLowerCase();
+    if (!['sin_plan','diario','mensual','anual'].includes(v)) { alert('Plan inválido. Usá: ' + opciones); return; }
+    await supabase.from('comercios').update({ plan: v }).eq('id', comercio.id);
     cargarComercios();
   }
 
@@ -194,7 +192,7 @@ export default function AdminApp({ perfil, page, setPage }) {
   // ── COMERCIOS ─────────────────────────────────────────────────────────────
   if (page === 'comercios') {
     const activosC = comercios.filter(c => c.activo);
-    const saldoTotal = comercios.reduce((s,c)=>s+(Number(c.saldo)||0),0);
+    const conPlan = comercios.filter(c => c.plan && c.plan !== 'sin_plan').length;
     return (
     <div className="space-y-6">
       <AdminHeader perfil={perfil} titulo="Comercios" sub="Gestioná y monitoreá todos los comercios asociados a Yendo"
@@ -202,7 +200,7 @@ export default function AdminApp({ perfil, page, setPage }) {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard2 icon="🏪" tint="green"  label="Comercios activos" value={activosC.length} delta="activos" up />
         <StatCard2 icon="📦" tint="blue"   label="Pedidos totales"   value={ordenes.filter(o=>o.tipo==='comercio').length} delta="histórico" up />
-        <StatCard2 icon="💰" tint="purple" label="Presupuesto total" value={`$${saldoTotal.toLocaleString('es-AR')}`} delta="disponible" />
+        <StatCard2 icon="💳" tint="purple" label="Con plan" value={conPlan} delta="suscriptos" up />
         <StatCard2 icon="⏳" tint="amber"  label="Inactivos"         value={comercios.filter(c=>!c.activo).length} delta="sin actividad" />
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -221,15 +219,15 @@ export default function AdminApp({ perfil, page, setPage }) {
                 {c.activo ? 'Activo' : 'Inactivo'}
               </span>
             </div>
-            {/* Saldo */}
+            {/* Plan de suscripción */}
             <div className="bg-gray-50 rounded-xl p-3 mb-3">
-              <p className="text-xs text-gray-400">Presupuesto disponible</p>
-              <p className="text-lg font-bold text-green-600">${(Number(c.saldo) || 0).toLocaleString('es-AR')}</p>
+              <p className="text-xs text-gray-400">Plan de suscripción</p>
+              <p className="text-lg font-bold text-green-600 capitalize">{(c.plan && c.plan !== 'sin_plan') ? c.plan : 'Sin plan'}</p>
             </div>
             <div className="flex gap-2">
-              <button onClick={() => recargarSaldo(c)}
+              <button onClick={() => cambiarPlan(c)}
                 className="flex-1 py-2 bg-green-50 text-green-700 rounded-lg text-xs font-semibold hover:bg-green-100">
-                + Recargar
+                Cambiar plan
               </button>
               <button onClick={async () => { await supabase.from('comercios').update({ activo: !c.activo }).eq('id', c.id); cargarComercios(); }}
                 className="flex-1 py-2 border border-gray-200 text-gray-600 rounded-lg text-xs font-semibold hover:bg-gray-50">
@@ -454,8 +452,15 @@ function NuevoCadete({ zonas, onSuccess, onCancel }) {
 // ── FORMULARIO NUEVO COMERCIO ─────────────────────────────────────────────────
 const CATEGORIAS = ['Comidas', 'Pizzería', 'Farmacia', 'Minimarket', 'Sushi', 'Cafetería', 'Otro'];
 
+const PLANES = [
+  { value: 'sin_plan', label: 'Sin plan' },
+  { value: 'diario',   label: 'Diario' },
+  { value: 'mensual',  label: 'Mensual' },
+  { value: 'anual',    label: 'Anual' },
+];
+
 function NuevoComercio({ onSuccess, onCancel }) {
-  const [form, setForm]     = useState({ nombre: '', email: '', password: '', telefono: '', direccion: '', categoria: 'Comidas', presupuesto: '' });
+  const [form, setForm]     = useState({ nombre: '', email: '', password: '', telefono: '', direccion: '', categoria: 'Comidas', plan: 'sin_plan' });
   const [loading, setLoading] = useState(false);
   const [error, setError]   = useState('');
   const [exito, setExito]   = useState(null);
@@ -481,10 +486,10 @@ function NuevoComercio({ onSuccess, onCancel }) {
           telefono:  form.telefono.trim(),
           direccion: form.direccion.trim(),
           categoria: form.categoria,
-          saldo:     parseFloat(form.presupuesto) || 0,
+          plan:      form.plan,
         }).eq('owner_id', data.user.id);
       }
-      setExito({ email: form.email, password: form.password, presupuesto: parseFloat(form.presupuesto) || 0 });
+      setExito({ email: form.email, password: form.password, plan: form.plan });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -501,7 +506,7 @@ function NuevoComercio({ onSuccess, onCancel }) {
         <div className="bg-white rounded-xl p-4 text-left space-y-2 border border-green-200">
           <p className="text-sm"><span className="font-semibold">Email:</span> {exito.email}</p>
           <p className="text-sm"><span className="font-semibold">Contraseña:</span> {exito.password}</p>
-          <p className="text-sm"><span className="font-semibold">Presupuesto inicial:</span> ${(exito.presupuesto).toLocaleString('es-AR')}</p>
+          <p className="text-sm"><span className="font-semibold">Plan:</span> {PLANES.find(p => p.value === exito.plan)?.label ?? 'Sin plan'}</p>
         </div>
         <button onClick={onSuccess} className="mt-4 w-full bg-green-600 text-white py-3 rounded-xl font-bold hover:bg-green-700">Listo</button>
       </div>
@@ -528,9 +533,15 @@ function NuevoComercio({ onSuccess, onCancel }) {
               {CATEGORIAS.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
-          <Campo label="Presupuesto ($)" placeholder="50000" {...f('presupuesto')} type="number" />
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Plan de suscripción</label>
+            <select value={form.plan} onChange={e => setForm(p => ({...p, plan: e.target.value}))}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+              {PLANES.map(pl => <option key={pl.value} value={pl.value}>{pl.label}</option>)}
+            </select>
+          </div>
         </div>
-        <p className="text-xs text-gray-400 -mt-2">El presupuesto es el saldo inicial que el comercio puede usar en envíos.</p>
+        <p className="text-xs text-gray-400 -mt-2">El plan define cómo se le cobra al comercio (diario / mensual / anual).</p>
         {error && <p className="text-red-500 text-sm">{error}</p>}
         <div className="flex gap-3 pt-1">
           <button type="button" onClick={onCancel} className="flex-1 py-3 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50">Cancelar</button>

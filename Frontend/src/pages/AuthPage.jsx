@@ -169,13 +169,13 @@ function Card({ children }) {
 }
 function Logo() {
   return (
-    <div className="flex items-center gap-2">
+    <a href="https://yendo-landing.netlify.app" className="flex items-center gap-2 hover:opacity-80 transition-opacity cursor-pointer" title="Ir al inicio">
       <svg viewBox="0 0 32 32" fill="none" className="w-8 h-8">
         <path d="M16 29C8 25 4 19 4 12.5 4 8.5 7 6 10.3 6c2.6 0 4.7 1.6 5.7 3.9C17 7.6 19.1 6 21.7 6 25 6 28 8.5 28 12.5 28 19 24 25 16 29Z" fill="#2ECC71"/>
         <path d="M16 29C8 25 4 19 4 12.5 4 8.5 7 6 10.3 6c2.6 0 4.7 1.6 5.7 3.9V29Z" fill="#1A7A3C"/>
       </svg>
       <span className="text-2xl font-bold text-gray-900">Yendo</span>
-    </div>
+    </a>
   );
 }
 function Input({ label, ...props }) {
