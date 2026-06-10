@@ -1,5 +1,18 @@
--- Migration 001: Rebuild Yendo — Auto-assignment, GPS, Revenue split
--- Ejecutar en Supabase SQL Editor
+-- YENDO — MIGRACION OFICIAL 001
+-- Auto-asignacion, GPS, broadcast, split 82/18 e indices de escala.
+--
+-- COPIAR Y PEGAR ESTE ARCHIVO COMPLETO EN:
+-- Supabase Dashboard -> SQL Editor -> New query
+--
+-- No usar archivos viejos duplicados de esta migracion.
+--
+-- ALCANCE: esta es una MIGRACION SOBRE UNA DB EXISTENTE, no un schema
+-- desde cero. Asume que ya existen las tablas base (perfiles, comercios,
+-- clientes, cadetes, direcciones, ordenes) creadas por sql/schema.sql.
+-- Lo que antes vivia suelto en fix-piloto.sql / schema_security_fix.sql
+-- (tabla zonas, columnas comercios.plan y comercios.categoria, limpieza
+-- de policies viejas de cadete) quedo consolidado aca abajo para que la
+-- app no dependa de archivos sueltos ni de cambios hechos a mano.
 
 -- ============================================================
 -- ORDENES: columnas nuevas
@@ -57,8 +70,69 @@ ON ordenes (cadete_id, estado, creado_en DESC)
 WHERE cadete_id IS NOT NULL;
 
 -- ============================================================
+-- COMERCIOS: columnas usadas por el panel admin
+-- ============================================================
+-- 'plan' define cómo se le cobra al comercio (suscripción).
+-- 'categoria' es el rubro mostrado en el panel y formulario de alta.
+ALTER TABLE comercios
+  ADD COLUMN IF NOT EXISTS plan      TEXT DEFAULT 'sin_plan';
+ALTER TABLE comercios
+  ADD COLUMN IF NOT EXISTS categoria TEXT;
+
+-- ============================================================
+-- ZONAS: tarifas por zona (la lee el frontend, la administra el admin)
+-- ============================================================
+-- Columnas que usan frontend (Pedido.jsx, admin TablaPrecios) y
+-- backend (routes/admin.js: POST/PATCH/DELETE /api/admin/zonas).
+CREATE TABLE IF NOT EXISTS public.zonas (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  value      TEXT NOT NULL UNIQUE,          -- slug interno (ej: ciudad_colon)
+  label      TEXT NOT NULL,                 -- nombre visible (ej: Ciudad de Colón)
+  precio     NUMERIC(12,2) NOT NULL DEFAULT 0,
+  precio_km  NUMERIC(12,2) NOT NULL DEFAULT 0,
+  tiempo     TEXT,                          -- estimado visible (ej: "15 - 25 min")
+  activo     BOOLEAN NOT NULL DEFAULT TRUE,
+  orden      INT NOT NULL DEFAULT 0,
+  creado_en  TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.zonas ENABLE ROW LEVEL SECURITY;
+
+-- Cualquier usuario autenticado puede leer las zonas (info pública del servicio).
+DROP POLICY IF EXISTS "zonas_select" ON public.zonas;
+CREATE POLICY "zonas_select" ON public.zonas
+  FOR SELECT USING (auth.role() = 'authenticated');
+
+-- Solo admins escriben zonas (el backend usa service key y bypassea RLS igual).
+DROP POLICY IF EXISTS "zonas_admin" ON public.zonas;
+CREATE POLICY "zonas_admin" ON public.zonas
+  FOR ALL USING (
+    EXISTS (SELECT 1 FROM perfiles WHERE id = auth.uid() AND rol = 'admin')
+  )
+  WITH CHECK (
+    EXISTS (SELECT 1 FROM perfiles WHERE id = auth.uid() AND rol = 'admin')
+  );
+
+-- Seed de zonas piloto (Colón, Entre Ríos). No pisa lo ya cargado.
+INSERT INTO public.zonas (value, label, precio, precio_km, tiempo, activo, orden) VALUES
+  ('ciudad_colon',      'Ciudad de Colón',   3000, 0, '10 - 20 min', TRUE, 1),
+  ('barrio_ombu',       'Barrio Ombú',       3500, 0, '15 - 25 min', TRUE, 2),
+  ('barrio_artalaz',    'Barrio Artalaz',    5000, 0, '15 - 25 min', TRUE, 3),
+  ('barrio_los_bretes', 'Barrio Los Bretes', 6000, 0, '20 - 30 min', TRUE, 4),
+  ('san_jose',          'San José',          8500, 0, '25 - 35 min', TRUE, 5),
+  ('el_brillante',      'El Brillante',      8500, 0, '25 - 35 min', TRUE, 6),
+  ('pueblo_liebig',     'Pueblo Liebig',     8500, 0, '25 - 35 min', TRUE, 7)
+ON CONFLICT (value) DO NOTHING;
+
+-- ============================================================
 -- RLS: políticas actualizadas para asignación directa
 -- ============================================================
+
+-- Limpieza de policies viejas que dejaban a CUALQUIER cadete ver/editar
+-- TODOS los pendientes sin filtro de zona (de schema.sql y fix-piloto.sql).
+-- Quedan reemplazadas por cadete_ve_sus_ordenes / cadete_actualiza_orden.
+DROP POLICY IF EXISTS "orden_cadete_select" ON ordenes;
+DROP POLICY IF EXISTS "orden_cadete_update" ON ordenes;
 
 -- Cadete puede ver:
 --   a) Sus propias órdenes (cadete_id = su id)
@@ -113,3 +187,36 @@ SELECT column_name, data_type
 FROM information_schema.columns
 WHERE table_name = 'cadetes'
   AND column_name = 'ultima_entrega_en';
+
+-- Columnas nuevas de comercios
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_name = 'comercios'
+  AND column_name IN ('plan','categoria')
+ORDER BY column_name;
+
+-- Tabla zonas creada + cantidad de zonas cargadas
+SELECT to_regclass('public.zonas') AS tabla_zonas;
+SELECT count(*) AS zonas_cargadas FROM public.zonas;
+
+-- Las policies viejas de cadete NO deben aparecer; sí las nuevas
+SELECT policyname
+FROM pg_policies
+WHERE schemaname = 'public' AND tablename = 'ordenes'
+  AND policyname IN (
+    'orden_cadete_select', 'orden_cadete_update',
+    'cadete_ve_sus_ordenes', 'cadete_actualiza_orden'
+  )
+ORDER BY policyname;
+
+SELECT indexname
+FROM pg_indexes
+WHERE schemaname = 'public'
+  AND tablename IN ('ordenes', 'cadetes')
+  AND indexname IN (
+    'idx_cadetes_matching',
+    'idx_ordenes_asignacion_directa',
+    'idx_ordenes_broadcast_zona',
+    'idx_ordenes_cadete_estado'
+  )
+ORDER BY indexname;

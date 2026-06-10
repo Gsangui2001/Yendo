@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useState } from 'react';
 import { useAuth } from './hooks/useAuth';
+import { UIProvider } from './components/ui/feedback';
 import Layout    from './components/Layout';
 import AuthPage  from './pages/AuthPage';
 import ComercioApp from './pages/comercio/Dashboard';
@@ -44,6 +45,7 @@ export default function App() {
   );
 
   return (
+    <UIProvider>
     <BrowserRouter>
       <Routes>
         {/* Login / Registro */}
@@ -80,5 +82,6 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
+    </UIProvider>
   );
 }

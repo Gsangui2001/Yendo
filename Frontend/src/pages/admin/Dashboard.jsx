@@ -1,13 +1,15 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
-import { supabase } from '../../lib/supabaseClient';
+import { supabase, supabaseConfig } from '../../lib/supabaseClient';
 const AdminMap = lazy(() => import('../../features/tracking/AdminMap').then(m => ({ default: m.AdminMap })));
 import { createClient } from '@supabase/supabase-js';
-import { apiFetch } from '../../lib/api';
+import { apiFetch, readApiError } from '../../lib/api';
+import { useToast, useConfirm } from '../../components/ui/feedback';
+import { Icon } from '../../components/ui/Icon';
 
 // Cliente secundario para crear usuarios sin afectar la sesión del admin
-const SB_URL = import.meta.env.VITE_SUPABASE_URL || 'https://gzcsvexfnfzwtmlayafb.supabase.co';
-const SB_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd6Y3N2ZXhmbmZ6d3RtbGF5YWZiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5NDI0NDQsImV4cCI6MjA5MzUxODQ0NH0.5-kUMR7PB10kOUzyKM8RvQae1S7NFG81LsKd1Lv7M_k';
-const sbAdmin = createClient(SB_URL, SB_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+const sbAdmin = createClient(supabaseConfig.url, supabaseConfig.anonKey, {
+  auth: { persistSession: false, autoRefreshToken: false },
+});
 
 const ESTADO_CHIP = {
   pendiente: 'bg-amber-100 text-amber-700',
@@ -25,11 +27,14 @@ const ESTADO_LABEL = {
 };
 
 export default function AdminApp({ perfil, page, setPage }) {
+  const toast = useToast();
+  const confirm = useConfirm();
   const [ordenes,   setOrdenes]   = useState([]);
   const [cadetes,   setCadetes]   = useState([]);
   const [comercios, setComercios] = useState([]);
   const [zonas,     setZonas]     = useState([]);
   const [loading,   setLoading]   = useState(true);
+  const [planTarget, setPlanTarget] = useState(null);
 
   useEffect(() => { cargarTodo(); }, []);
 
@@ -52,28 +57,49 @@ export default function AdminApp({ perfil, page, setPage }) {
   async function cargarZonas()    { const { data } = await supabase.from('zonas').select('*').order('orden'); setZonas(data ?? []); }
 
   async function cambiarEstadoOrden(id, estado) {
-    await apiFetch(`/api/admin/ordenes/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ estado }),
-    });
-    cargarOrdenes();
+    try {
+      const res = await apiFetch(`/api/admin/ordenes/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ estado }),
+      });
+      if (!res.ok) { toast.error(await readApiError(res)); return; }
+    } catch {
+      toast.error('No se pudo actualizar el pedido. Revisá tu conexión.');
+    } finally {
+      cargarOrdenes();
+    }
   }
   async function cambiarEstadoCadete(id, estado) {
-    await apiFetch(`/api/admin/cadetes/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ estado }),
-    });
-    cargarCadetes();
+    try {
+      const res = await apiFetch(`/api/admin/cadetes/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ estado }),
+      });
+      if (!res.ok) { toast.error(await readApiError(res)); return; }
+    } catch {
+      toast.error('No se pudo actualizar el cadete. Revisá tu conexión.');
+    } finally {
+      cargarCadetes();
+    }
   }
 
-  async function cambiarPlan(comercio) {
-    const opciones = 'sin_plan, diario, mensual, anual';
-    const nuevo = prompt(`Cambiar plan de ${comercio.nombre}\nPlan actual: ${comercio.plan ?? 'sin_plan'}\n\nEscribí el nuevo plan (${opciones}):`, comercio.plan ?? 'sin_plan');
-    if (nuevo === null) return;
-    const v = nuevo.trim().toLowerCase();
-    if (!['sin_plan','diario','mensual','anual'].includes(v)) { alert('Plan inválido. Usá: ' + opciones); return; }
-    await supabase.from('comercios').update({ plan: v }).eq('id', comercio.id);
-    cargarComercios();
+  // Abre el modal de cambio de plan (reemplaza el prompt nativo)
+  function cambiarPlan(comercio) {
+    setPlanTarget(comercio);
+  }
+  async function guardarPlan(comercioId, plan) {
+    try {
+      const res = await apiFetch(`/api/admin/comercios/${comercioId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ plan }),
+      });
+      if (!res.ok) { toast.error(await readApiError(res)); return; }
+      setPlanTarget(null);
+      await cargarComercios();
+      toast.success('Plan actualizado');
+    } catch {
+      toast.error('No se pudo cambiar el plan. Revisá tu conexión.');
+    }
   }
 
   if (loading) return <Spinner />;
@@ -82,24 +108,35 @@ export default function AdminApp({ perfil, page, setPage }) {
   const pedidosHoy = ordenes.filter(o => o.creado_en?.startsWith(hoy));
   const pendientes = ordenes.filter(o => o.estado === 'pendiente');
   const activos    = cadetes.filter(c => ['disponible','en_viaje'].includes(c.estado));
+  const entregadas = ordenes.filter(o => o.estado === 'entregada');
+  const facturadoTotal = entregadas.reduce((s, o) => s + (Number(o.precio) || 0), 0);
+  const gananciaYendo = entregadas.reduce((s, o) => s + (Number(o.ganancia_yendo) || ((Number(o.precio) || 0) * 0.18)), 0);
+  const gananciaCadetes = entregadas.reduce((s, o) => s + (Number(o.ganancia_cadete) || ((Number(o.precio) || 0) * 0.82)), 0);
+  const ingresosPlanes = comercios.reduce((s, c) => {
+    const plan = c.plan ?? 'sin_plan';
+    if (plan === 'diario') return s + 4000;
+    if (plan === 'mensual') return s + 90000;
+    if (plan === 'anual') return s + 1300000;
+    return s;
+  }, 0);
 
   // ── CADETES ───────────────────────────────────────────────────────────────
   if (page === 'cadetes') {
     const disp   = cadetes.filter(c => c.estado === 'disponible');
     const ruta   = cadetes.filter(c => c.estado === 'en_viaje');
     const off    = cadetes.filter(c => c.estado === 'offline');
-    const ratingProm = cadetes.length ? (4.6 + Math.random()*0.3).toFixed(1) : '—';
+    const viajesHoy = cadetes.reduce((s, c) => s + (c.viajes_hoy ?? 0), 0);
     return (
       <div className="space-y-6 animate-fade-in">
         <AdminHeader perfil={perfil} titulo="Cadetes" sub="Gestioná y monitoreá a los cadetes en tiempo real"
           accion={<button onClick={() => setPage('nuevo-cadete')} className="btn-primary px-4 py-2.5 text-sm ripple">+ Agregar cadete</button>} />
 
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-          <StatCard2 icon="🚴" tint="green"  label="Activos"      value={disp.length + ruta.length} delta="cadetes" up />
-          <StatCard2 icon="🟢" tint="green"  label="Disponibles"  value={disp.length}               delta="online" up />
-          <StatCard2 icon="🔵" tint="blue"   label="En ruta"      value={ruta.length}               delta="entregando" />
-          <StatCard2 icon="⚫" tint="gray"   label="Desconectados" value={off.length}               delta="offline" />
-          <StatCard2 icon="⭐" tint="amber"  label="Calificación"  value={ratingProm}               delta="promedio" up />
+          <StatCard2 icon="bike"     tint="green"  label="Activos"       value={disp.length + ruta.length} delta="cadetes" up />
+          <StatCard2 icon="check"    tint="green"  label="Disponibles"   value={disp.length}               delta="online" up />
+          <StatCard2 icon="navigate" tint="blue"   label="En ruta"       value={ruta.length}               delta="entregando" />
+          <StatCard2 icon="power"    tint="gray"   label="Desconectados" value={off.length}                delta="offline" />
+          <StatCard2 icon="box"      tint="violet" label="Viajes hoy"    value={viajesHoy}                 delta="entregas del día" up />
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
@@ -110,7 +147,7 @@ export default function AdminApp({ perfil, page, setPage }) {
               <table className="w-full text-sm">
                 <thead><tr className="text-xs text-gray-400 uppercase border-b border-gray-100">
                   <th className="text-left pb-3 pr-4">Cadete</th><th className="text-left pb-3 pr-4">Estado</th>
-                  <th className="text-left pb-3 pr-4">Calif.</th><th className="text-left pb-3 pr-4">Ganancias</th>
+                  <th className="text-left pb-3 pr-4">Zona</th><th className="text-left pb-3 pr-4">Ganancias</th>
                   <th className="text-left pb-3 pr-4 hidden sm:table-cell">Viajes</th><th className="text-left pb-3">Acción</th>
                 </tr></thead>
                 <tbody>
@@ -123,7 +160,7 @@ export default function AdminApp({ perfil, page, setPage }) {
                           {c.estado==='disponible'?'Disponible':c.estado==='en_viaje'?'En ruta':'Desconectado'}
                         </span>
                       </td>
-                      <td className="py-3 pr-4 font-semibold text-amber-500">★ {(4.5+i*0.1).toFixed(1)}</td>
+                      <td className="py-3 pr-4 text-gray-500 capitalize">{c.zona ? String(c.zona).replace(/_/g, ' ') : '—'}</td>
                       <td className="py-3 pr-4 font-bold text-green-600">${(c.ganancias_hoy ?? 0).toLocaleString('es-AR')}</td>
                       <td className="py-3 pr-4 text-gray-500 hidden sm:table-cell">{c.viajes_hoy ?? 0}</td>
                       <td className="py-3">
@@ -195,17 +232,17 @@ export default function AdminApp({ perfil, page, setPage }) {
       <AdminHeader perfil={perfil} titulo="Comercios" sub="Gestioná y monitoreá todos los comercios asociados a Yendo"
         accion={<button onClick={() => setPage('nuevo-comercio')} className="btn-primary px-4 py-2.5 text-sm ripple">+ Agregar comercio</button>} />
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard2 icon="🏪" tint="green"  label="Comercios activos" value={activosC.length} delta="activos" up />
-        <StatCard2 icon="📦" tint="blue"   label="Pedidos totales"   value={ordenes.filter(o=>o.tipo==='comercio').length} delta="histórico" up />
-        <StatCard2 icon="💳" tint="purple" label="Con plan" value={conPlan} delta="suscriptos" up />
-        <StatCard2 icon="⏳" tint="amber"  label="Inactivos"         value={comercios.filter(c=>!c.activo).length} delta="sin actividad" />
+        <StatCard2 icon="store"  tint="green"  label="Comercios activos" value={activosC.length} delta="activos" up />
+        <StatCard2 icon="box"    tint="blue"   label="Pedidos totales"   value={ordenes.filter(o=>o.tipo==='comercio').length} delta="histórico" up />
+        <StatCard2 icon="wallet" tint="violet" label="Con plan" value={conPlan} delta="suscriptos" up />
+        <StatCard2 icon="clock"  tint="amber"  label="Inactivos"         value={comercios.filter(c=>!c.activo).length} delta="sin actividad" />
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {comercios.map(c => (
           <div key={c.id} className="bg-white rounded-2xl border border-gray-100 p-4">
             <div className="flex items-start justify-between mb-3">
               <div className="flex gap-3">
-                <div className="w-10 h-10 rounded-xl bg-green-100 flex items-center justify-center text-lg">🏪</div>
+                <div className="w-10 h-10 rounded-xl bg-green-100 text-green-600 flex items-center justify-center"><Icon name="store" className="w-5 h-5" /></div>
                 <div>
                   <p className="font-semibold text-gray-900">{c.nombre}</p>
                   {c.categoria && <p className="text-xs text-gray-400">{c.categoria}</p>}
@@ -226,7 +263,14 @@ export default function AdminApp({ perfil, page, setPage }) {
                 className="flex-1 py-2 bg-green-50 text-green-700 rounded-lg text-xs font-semibold hover:bg-green-100">
                 Cambiar plan
               </button>
-              <button onClick={async () => { await supabase.from('comercios').update({ activo: !c.activo }).eq('id', c.id); cargarComercios(); }}
+              <button onClick={async () => {
+                  try {
+                    const res = await apiFetch(`/api/admin/comercios/${c.id}`, { method: 'PATCH', body: JSON.stringify({ activo: !c.activo }) });
+                    if (!res.ok) { toast.error(await readApiError(res)); return; }
+                    cargarComercios();
+                    toast.success(c.activo ? 'Comercio desactivado' : 'Comercio activado');
+                  } catch { toast.error('No se pudo actualizar el comercio. Revisá tu conexión.'); }
+                }}
                 className="flex-1 py-2 border border-gray-200 text-gray-600 rounded-lg text-xs font-semibold hover:bg-gray-50">
                 {c.activo ? 'Desactivar' : 'Activar'}
               </button>
@@ -235,6 +279,8 @@ export default function AdminApp({ perfil, page, setPage }) {
         ))}
         {comercios.length === 0 && <Empty texto="Sin comercios registrados" />}
       </div>
+
+      {planTarget && <PlanModal comercio={planTarget} onClose={() => setPlanTarget(null)} onSave={guardarPlan} />}
     </div>
     );
   }
@@ -242,6 +288,11 @@ export default function AdminApp({ perfil, page, setPage }) {
   // ── NUEVO COMERCIO ────────────────────────────────────────────────────────
   if (page === 'nuevo-comercio') return (
     <NuevoComercio onSuccess={() => { cargarComercios(); setPage('comercios'); }} onCancel={() => setPage('comercios')} />
+  );
+
+  // ── FINANZAS ──────────────────────────────────────────────────────────────
+  if (page === 'finanzas') return (
+    <Finanzas perfil={perfil} ordenes={ordenes} cadetes={cadetes} comercios={comercios} />
   );
 
   // ── PRECIOS ───────────────────────────────────────────────────────────────
@@ -254,10 +305,10 @@ export default function AdminApp({ perfil, page, setPage }) {
     <div className="space-y-6">
       <AdminHeader perfil={perfil} titulo="Pedidos" sub="Todos los pedidos de la plataforma en tiempo real" />
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard2 icon="📦" tint="green"  label="Pedidos hoy" value={pedidosHoy.length} delta="hoy" up />
-        <StatCard2 icon="🔍" tint="amber"  label="Pendientes"  value={pendientes.length} delta="sin cadete" />
-        <StatCard2 icon="✅" tint="green"  label="Entregados"  value={ordenes.filter(o=>o.estado==='entregada').length} delta="histórico" up />
-        <StatCard2 icon="💵" tint="blue"   label="Facturado"   value={`$${ordenes.filter(o=>o.estado==='entregada').reduce((s,o)=>s+(Number(o.precio)||0),0).toLocaleString('es-AR')}`} delta="entregados" up />
+        <StatCard2 icon="box"    tint="green"  label="Pedidos hoy" value={pedidosHoy.length} delta="hoy" up />
+        <StatCard2 icon="clock"  tint="amber"  label="Pendientes"  value={pendientes.length} delta="sin cadete" />
+        <StatCard2 icon="check"  tint="green"  label="Entregados"  value={ordenes.filter(o=>o.estado==='entregada').length} delta="histórico" up />
+        <StatCard2 icon="wallet" tint="blue"   label="Facturado"   value={`$${ordenes.filter(o=>o.estado==='entregada').reduce((s,o)=>s+(Number(o.precio)||0),0).toLocaleString('es-AR')}`} delta="entregados" up />
       </div>
       <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
         <div className="overflow-x-auto">
@@ -296,10 +347,10 @@ export default function AdminApp({ perfil, page, setPage }) {
     <div className="space-y-6">
       <AdminHeader perfil={perfil} titulo="Panel de administración" sub={new Date().toLocaleDateString('es-AR', { weekday:'long', day:'numeric', month:'long' })} />
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard2 icon="📦" tint="green"  label="Pedidos hoy"     value={pedidosHoy.length} delta={`${pedidosHoy.length} hoy`} up />
-        <StatCard2 icon="🔍" tint="amber"  label="Pendientes"      value={pendientes.length} delta="sin cadete" />
-        <StatCard2 icon="🚴" tint="blue"   label="Cadetes activos" value={activos.length}    delta="conectados" up />
-        <StatCard2 icon="🏪" tint="purple" label="Comercios"       value={comercios.length}  delta="registrados" up />
+        <StatCard2 icon="box"    tint="green"  label="Pedidos hoy"      value={pedidosHoy.length} delta={`${pedidosHoy.length} hoy`} up />
+        <StatCard2 icon="clock"  tint="amber"  label="Pendientes"       value={pendientes.length} delta="sin cadete" />
+        <StatCard2 icon="money"  tint="green"  label="Yendo 18%"        value={`$${Math.round(gananciaYendo).toLocaleString('es-AR')}`} delta="envíos entregados" up />
+        <StatCard2 icon="store"  tint="violet" label="Planes comercios" value={`$${ingresosPlanes.toLocaleString('es-AR')}`}  delta="día/mes/año" up />
       </div>
 
       {pendientes.length > 0 && (
@@ -318,6 +369,31 @@ export default function AdminApp({ perfil, page, setPage }) {
           </div>
         </div>
       )}
+
+      <div className="grid xl:grid-cols-[1.3fr_0.7fr] gap-5">
+        <div className="bg-white rounded-2xl border border-gray-100 p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h3 className="font-bold text-gray-900">Mapa operativo</h3>
+              <p className="text-xs text-gray-400">Cadetes y pedidos activos en tiempo real</p>
+            </div>
+            <button onClick={() => setPage('cadetes')} className="text-xs text-green-600 font-semibold">Abrir cadetes</button>
+          </div>
+          <Suspense fallback={<div className="h-80 flex items-center justify-center text-gray-400 text-sm">Cargando mapa...</div>}>
+            <AdminMap cadetes={cadetes} ordenes={ordenes} />
+          </Suspense>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-gray-100 p-5">
+          <h3 className="font-bold mb-4">Finanzas de control</h3>
+          <div className="space-y-3">
+            <MiniStat label="Facturado en envíos" value={`$${Math.round(facturadoTotal).toLocaleString('es-AR')}`} />
+            <MiniStat label="Yendo por envíos (18%)" value={`$${Math.round(gananciaYendo).toLocaleString('es-AR')}`} />
+            <MiniStat label="Cadetes (82%)" value={`$${Math.round(gananciaCadetes).toLocaleString('es-AR')}`} />
+            <MiniStat label="Planes comercios" value={`$${ingresosPlanes.toLocaleString('es-AR')}`} />
+          </div>
+        </div>
+      </div>
 
       <div className="grid sm:grid-cols-2 gap-5">
         <div className="bg-white rounded-2xl border border-gray-100 p-5">
@@ -387,8 +463,10 @@ function NuevoCadete({ zonas, onSuccess, onCancel }) {
 
       // Actualizar datos extra del cadete
       if (data.user) {
-        await supabase.from('cadetes').update({ telefono: form.telefono.trim(), zona: form.zona })
-          .eq('id', data.user.id);
+        await apiFetch(`/api/admin/cadetes/${data.user.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ telefono: form.telefono.trim(), zona: form.zona }),
+        });
       }
       setExito({ email: form.email, password: form.password });
     } catch (err) {
@@ -401,7 +479,7 @@ function NuevoCadete({ zonas, onSuccess, onCancel }) {
   if (exito) return (
     <div className="max-w-md mx-auto">
       <div className="bg-green-50 border border-green-200 rounded-2xl p-6 text-center">
-        <div className="text-4xl mb-3">✅</div>
+        <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-green-100 text-green-600"><Icon name="check" className="w-7 h-7" /></div>
         <h3 className="font-bold text-lg text-green-800 mb-2">Cadete registrado</h3>
         <p className="text-sm text-green-700 mb-4">Compartí estas credenciales con el cadete:</p>
         <div className="bg-white rounded-xl p-4 text-left space-y-2 border border-green-200">
@@ -479,12 +557,15 @@ function NuevoComercio({ onSuccess, onCancel }) {
       if (authErr) throw new Error(authErr.message);
 
       if (data.user) {
-        await supabase.from('comercios').update({
-          telefono:  form.telefono.trim(),
-          direccion: form.direccion.trim(),
-          categoria: form.categoria,
-          plan:      form.plan,
-        }).eq('owner_id', data.user.id);
+        await apiFetch(`/api/admin/comercios/owner/${data.user.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            telefono:  form.telefono.trim(),
+            direccion: form.direccion.trim(),
+            categoria: form.categoria,
+            plan:      form.plan,
+          }),
+        });
       }
       setExito({ email: form.email, password: form.password, plan: form.plan });
     } catch (err) {
@@ -497,7 +578,7 @@ function NuevoComercio({ onSuccess, onCancel }) {
   if (exito) return (
     <div className="max-w-md mx-auto">
       <div className="bg-green-50 border border-green-200 rounded-2xl p-6 text-center">
-        <div className="text-4xl mb-3">✅</div>
+        <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-green-100 text-green-600"><Icon name="check" className="w-7 h-7" /></div>
         <h3 className="font-bold text-lg text-green-800 mb-2">Comercio registrado</h3>
         <p className="text-sm text-green-700 mb-4">Compartí estas credenciales con el comercio:</p>
         <div className="bg-white rounded-xl p-4 text-left space-y-2 border border-green-200">
@@ -553,6 +634,8 @@ function NuevoComercio({ onSuccess, onCancel }) {
 
 // ── PRECIOS Y TARIFAS ─────────────────────────────────────────────────────────
 function TablaPrecios({ perfil, zonas, onUpdate }) {
+  const toast = useToast();
+  const confirm = useConfirm();
   const [tab, setTab]          = useState('zona'); // zona | especiales | cargos
   const [editId, setEditId]    = useState(null);
   const [editData, setEditData]= useState({});
@@ -573,19 +656,51 @@ function TablaPrecios({ perfil, zonas, onUpdate }) {
   function empezarEdicion(z) { setEditId(z.id); setEditData({ precio: z.precio, precio_km: z.precio_km ?? 0, tiempo: z.tiempo ?? '' }); }
   async function guardarEdicion(z) {
     setSaving(true);
-    await supabase.from('zonas').update({ precio: parseFloat(editData.precio) || 0, precio_km: parseFloat(editData.precio_km) || 0, tiempo: editData.tiempo }).eq('id', z.id);
-    setSaving(false); setEditId(null); onUpdate();
+    try {
+      const res = await apiFetch(`/api/admin/zonas/${z.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ precio: parseFloat(editData.precio) || 0, precio_km: parseFloat(editData.precio_km) || 0, tiempo: editData.tiempo }),
+      });
+      if (!res.ok) { toast.error(await readApiError(res)); return; }
+      setEditId(null); onUpdate();
+      toast.success('Zona actualizada');
+    } catch {
+      toast.error('No se pudo guardar la zona. Revisá tu conexión.');
+    } finally {
+      setSaving(false);
+    }
   }
-  async function toggleActivo(z) { await supabase.from('zonas').update({ activo: !z.activo }).eq('id', z.id); onUpdate(); }
-  async function eliminarZona(id) { if (!confirm('¿Eliminar esta zona?')) return; await supabase.from('zonas').delete().eq('id', id); onUpdate(); }
+  async function toggleActivo(z) {
+    try {
+      const res = await apiFetch(`/api/admin/zonas/${z.id}`, { method: 'PATCH', body: JSON.stringify({ activo: !z.activo }) });
+      if (!res.ok) { toast.error(await readApiError(res)); return; }
+      onUpdate();
+    } catch { toast.error('No se pudo actualizar la zona. Revisá tu conexión.'); }
+  }
+  async function eliminarZona(id) {
+    const ok = await confirm({ title: 'Eliminar zona', message: 'Se va a eliminar esta tarifa de zona.', danger: true, confirmLabel: 'Eliminar' });
+    if (!ok) return;
+    try {
+      const res = await apiFetch(`/api/admin/zonas/${id}`, { method: 'DELETE' });
+      if (!res.ok) { toast.error(await readApiError(res)); return; }
+      onUpdate();
+      toast.success('Zona eliminada');
+    } catch { toast.error('No se pudo eliminar la zona. Revisá tu conexión.'); }
+  }
   async function agregarZona(e) {
     e.preventDefault(); setError('');
     if (!nueva.label.trim()) return setError('Ingresá el nombre de la zona');
     if (!nueva.precio || isNaN(nueva.precio)) return setError('Ingresá un precio base válido');
     const value = nueva.label.toLowerCase().replace(/\s+/g, '_').replace(/[áéíóú]/g, c => ({á:'a',é:'e',í:'i',ó:'o',ú:'u'})[c] ?? c);
     setSaving(true);
-    const { error: e2 } = await supabase.from('zonas').insert({ label: nueva.label.trim(), value, precio: parseFloat(nueva.precio), precio_km: parseFloat(nueva.precio_km) || 0, tiempo: nueva.tiempo, orden: zonas.length + 1 });
-    if (e2) setError(e2.message);
+    const res = await apiFetch('/api/admin/zonas', {
+      method: 'POST',
+      body: JSON.stringify({ label: nueva.label.trim(), value, precio: parseFloat(nueva.precio), precio_km: parseFloat(nueva.precio_km) || 0, tiempo: nueva.tiempo, orden: zonas.length + 1 }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error || 'No se pudo crear la zona');
+    }
     else { setNueva({ label: '', precio: '', precio_km: '', tiempo: '15 - 25 min' }); setShowNueva(false); onUpdate(); }
     setSaving(false);
   }
@@ -710,6 +825,249 @@ function TablaPrecios({ perfil, zonas, onUpdate }) {
   );
 }
 
+// ── FINANZAS ───────────────────────────────────────────────────────────────────
+// Abonos de comercios por plan + comisión Yendo (18%) y pago a cadetes (82%)
+// sobre envíos entregados. Todo calculado con datos reales de Supabase.
+const PLAN_NOMINAL = { diario: 4000, mensual: 90000, anual: 1300000, sin_plan: 0 };
+// Normalizado a mes para comparar planes entre sí (abono recurrente estimado).
+const PLAN_MENSUAL = { diario: 4000 * 30, mensual: 90000, anual: Math.round(1300000 / 12), sin_plan: 0 };
+const PLAN_NOMBRE  = { diario: 'Diario', mensual: 'Mensual', anual: 'Anual', sin_plan: 'Sin plan' };
+const FEE_YENDO = 0.18;
+
+const peso = n => '$' + Math.round(Number(n) || 0).toLocaleString('es-AR');
+
+function Finanzas({ perfil, ordenes, cadetes, comercios }) {
+  const [periodo, setPeriodo] = useState('mes'); // hoy | mes | historico
+
+  const hoyStr = new Date().toISOString().slice(0, 10);
+  const mesStr = hoyStr.slice(0, 7);
+  const fechaDe = o => o.entregada_en ?? o.creado_en ?? '';
+  const enPeriodo = o => {
+    if (periodo === 'hoy') return fechaDe(o).startsWith(hoyStr);
+    if (periodo === 'mes') return fechaDe(o).startsWith(mesStr);
+    return true;
+  };
+
+  const entregadas = ordenes.filter(o => o.estado === 'entregada' && enPeriodo(o));
+  const gYendo  = o => Number(o.ganancia_yendo  ?? (Number(o.precio) || 0) * FEE_YENDO);
+  const gCadete = o => Number(o.ganancia_cadete ?? (Number(o.precio) || 0) * (1 - FEE_YENDO));
+
+  const facturacionEnvios = entregadas.reduce((s, o) => s + (Number(o.precio) || 0), 0);
+  const comisionYendo     = entregadas.reduce((s, o) => s + gYendo(o), 0);
+  const pagoCadetes       = entregadas.reduce((s, o) => s + gCadete(o), 0);
+
+  // Abonos: base recurrente de comercios activos (no depende del período)
+  const comerciosActivos = comercios.filter(c => c.activo);
+  const planes = ['diario', 'mensual', 'anual', 'sin_plan'];
+  const porPlan = planes.map(p => {
+    const lista = comerciosActivos.filter(c => (c.plan ?? 'sin_plan') === p);
+    return { plan: p, cantidad: lista.length, mensual: lista.length * (PLAN_MENSUAL[p] ?? 0) };
+  });
+  const abonoMensual = porPlan.reduce((s, p) => s + p.mensual, 0);
+  const comerciosConPlan = comerciosActivos.filter(c => c.plan && c.plan !== 'sin_plan').length;
+
+  // Ingreso total estimado de Yendo = comisión envíos (período) + abonos mensuales
+  const ingresoYendo = comisionYendo + abonoMensual;
+
+  // Pago acumulado por cadete (sobre entregadas del período)
+  const porCadete = cadetes
+    .map(c => {
+      const suyas = entregadas.filter(o => o.cadete_id === c.id);
+      return { id: c.id, nombre: c.nombre, pedidos: suyas.length, pago: suyas.reduce((s, o) => s + gCadete(o), 0) };
+    })
+    .filter(c => c.pedidos > 0)
+    .sort((a, b) => b.pago - a.pago);
+
+  // Facturación generada por comercio (período) + su abono mensual
+  const porComercio = comercios
+    .map(co => {
+      const suyas = entregadas.filter(o => o.comercio_id === co.id);
+      return {
+        id: co.id,
+        nombre: co.nombre,
+        plan: co.plan ?? 'sin_plan',
+        activo: co.activo,
+        pedidos: suyas.length,
+        facturado: suyas.reduce((s, o) => s + (Number(o.precio) || 0), 0),
+      };
+    })
+    .sort((a, b) => b.facturado - a.facturado);
+
+  const periodoLabel = { hoy: 'hoy', mes: 'este mes', historico: 'histórico' }[periodo];
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <AdminHeader
+        perfil={perfil}
+        titulo="Finanzas"
+        sub="Abonos de comercios, comisión de Yendo y pagos a cadetes"
+        accion={
+          <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
+            {[['hoy', 'Hoy'], ['mes', 'Mes'], ['historico', 'Histórico']].map(([k, l]) => (
+              <button key={k} onClick={() => setPeriodo(k)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${periodo === k ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                {l}
+              </button>
+            ))}
+          </div>
+        }
+      />
+
+      {/* KPIs principales */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard2 icon="money"  tint="green"  label={`Ingreso Yendo (${periodoLabel})`} value={peso(ingresoYendo)} delta="comisión + abonos" up idx={0} />
+        <StatCard2 icon="wallet" tint="blue"   label="Abonos mensuales"   value={peso(abonoMensual)}     delta={`${comerciosConPlan} con plan`} up idx={1} />
+        <StatCard2 icon="bike"   tint="amber"  label="Comisión envíos 18%" value={peso(comisionYendo)}   delta={`${entregadas.length} entregas`} up idx={2} />
+        <StatCard2 icon="money"  tint="violet" label="A pagar a cadetes 82%" value={peso(pagoCadetes)}   delta={periodoLabel} idx={3} />
+      </div>
+
+      {/* Desglose de abonos por plan */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="font-bold text-gray-900">Ingresos por abonos</h3>
+            <p className="text-xs text-gray-400 mt-0.5">Comercios activos por plan. Normalizado a mes para comparar.</p>
+          </div>
+          <p className="text-2xl font-extrabold text-green-600">{peso(abonoMensual)}<span className="text-sm font-semibold text-gray-400">/mes</span></p>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {porPlan.map(p => (
+            <div key={p.plan} className="bg-gray-50 rounded-xl p-4">
+              <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide">{PLAN_NOMBRE[p.plan]}</p>
+              <p className="text-2xl font-extrabold text-gray-900 mt-1">{p.cantidad}</p>
+              <p className="text-xs text-gray-400">comercios</p>
+              <p className="text-sm font-bold text-green-600 mt-2">{peso(p.mensual)}<span className="text-xs text-gray-400 font-medium">/mes</span></p>
+              {p.plan !== 'sin_plan' && <p className="text-[11px] text-gray-400 mt-0.5">abono {peso(PLAN_NOMINAL[p.plan])} {p.plan === 'diario' ? '/día' : p.plan === 'anual' ? '/año' : '/mes'}</p>}
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 flex items-start gap-2">
+          <span className="text-blue-500">ℹ️</span>
+          <p className="text-xs text-blue-700">Es el ingreso recurrente estimado por suscripciones de comercios activos. El cobro real de cada abono se gestiona aparte (todavía no hay registro de pagos cargado).</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {/* Pago a cadetes */}
+        <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-bold text-gray-900">A pagar a cadetes</h3>
+            <span className="text-sm font-extrabold text-gray-900">{peso(pagoCadetes)}</span>
+          </div>
+          {porCadete.length === 0
+            ? <Empty texto={`Sin entregas ${periodoLabel}`} />
+            : <div className="space-y-1">
+                {porCadete.map((c, i) => (
+                  <div key={c.id} className="flex items-center justify-between px-2 py-2.5 rounded-xl hover:bg-gray-50 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${i === 0 ? 'bg-amber-100 text-amber-600' : i === 1 ? 'bg-gray-100 text-gray-500' : i === 2 ? 'bg-orange-100 text-orange-600' : 'bg-gray-50 text-gray-400'}`}>{i + 1}</span>
+                      <div>
+                        <p className="font-semibold text-sm text-gray-800">{c.nombre}</p>
+                        <p className="text-xs text-gray-400">{c.pedidos} {c.pedidos === 1 ? 'entrega' : 'entregas'}</p>
+                      </div>
+                    </div>
+                    <span className="text-sm font-bold text-green-600">{peso(c.pago)}</span>
+                  </div>
+                ))}
+              </div>}
+        </div>
+
+        {/* Facturación por comercio */}
+        <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-bold text-gray-900">Facturación por comercio</h3>
+            <span className="text-sm font-extrabold text-gray-900">{peso(facturacionEnvios)}</span>
+          </div>
+          {porComercio.length === 0
+            ? <Empty texto="Sin comercios" />
+            : <div className="overflow-x-auto -mx-2">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-xs text-gray-400 uppercase border-b border-gray-100">
+                      <th className="text-left pb-2 px-2 font-semibold">Comercio</th>
+                      <th className="text-left pb-2 px-2 font-semibold">Plan</th>
+                      <th className="text-right pb-2 px-2 font-semibold">Envíos</th>
+                      <th className="text-right pb-2 px-2 font-semibold">Facturado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {porComercio.map(co => (
+                      <tr key={co.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50">
+                        <td className="py-2.5 px-2 font-semibold text-gray-800">{co.nombre}{!co.activo && <span className="ml-1 text-[10px] text-gray-400">(inactivo)</span>}</td>
+                        <td className="py-2.5 px-2">
+                          <span className={`text-[11px] px-2 py-0.5 rounded-full font-semibold ${co.plan !== 'sin_plan' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{PLAN_NOMBRE[co.plan]}</span>
+                        </td>
+                        <td className="py-2.5 px-2 text-right text-gray-500">{co.pedidos}</td>
+                        <td className="py-2.5 px-2 text-right font-bold text-gray-900">{peso(co.facturado)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>}
+        </div>
+      </div>
+
+      {/* Resumen de reparto */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+        <h3 className="font-bold text-gray-900 mb-1">Reparto de envíos ({periodoLabel})</h3>
+        <p className="text-xs text-gray-400 mb-4">{entregadas.length} {entregadas.length === 1 ? 'entrega' : 'entregas'} · {peso(facturacionEnvios)} facturado</p>
+        {facturacionEnvios > 0
+          ? (
+            <>
+              <div className="flex h-7 rounded-full overflow-hidden">
+                <div className="bg-green-600 flex items-center justify-center text-[11px] font-bold text-white" style={{ width: `${(pagoCadetes / facturacionEnvios) * 100}%` }}>82%</div>
+                <div className="bg-gray-800 flex items-center justify-center text-[11px] font-bold text-white" style={{ width: `${(comisionYendo / facturacionEnvios) * 100}%` }}>18%</div>
+              </div>
+              <div className="flex justify-between mt-3 text-sm">
+                <span className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-green-600" /> Cadetes <strong className="text-gray-900">{peso(pagoCadetes)}</strong></span>
+                <span className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-gray-800" /> Yendo <strong className="text-gray-900">{peso(comisionYendo)}</strong></span>
+              </div>
+            </>
+          )
+          : <Empty texto={`Sin envíos entregados ${periodoLabel}`} />}
+      </div>
+    </div>
+  );
+}
+
+// Modal de cambio de plan (reemplaza el prompt() nativo)
+function PlanModal({ comercio, onClose, onSave }) {
+  const [sel, setSel] = useState(comercio.plan ?? 'sin_plan');
+  const [saving, setSaving] = useState(false);
+  const opciones = [
+    { v: 'sin_plan', precio: null, sub: 'Sin suscripción' },
+    { v: 'diario',   precio: PLAN_NOMINAL.diario,  sub: 'por día' },
+    { v: 'mensual',  precio: PLAN_NOMINAL.mensual, sub: 'por mes' },
+    { v: 'anual',    precio: PLAN_NOMINAL.anual,   sub: 'por año' },
+  ];
+  async function guardar() { setSaving(true); await onSave(comercio.id, sel); setSaving(false); }
+  return (
+    <Modal titulo={`Plan de ${comercio.nombre}`} onClose={onClose}>
+      <div className="space-y-2">
+        {opciones.map(o => (
+          <button key={o.v} type="button" onClick={() => setSel(o.v)}
+            className={`w-full flex items-center justify-between p-3 rounded-xl border-2 transition-all ${sel === o.v ? 'border-green-500 bg-green-50' : 'border-gray-100 hover:border-gray-200'}`}>
+            <div className="text-left">
+              <p className="font-bold text-gray-900">{PLAN_NOMBRE[o.v]}</p>
+              <p className="text-xs text-gray-400">{o.sub}</p>
+            </div>
+            <div className="flex items-center gap-3">
+              {o.precio != null && <span className="font-extrabold text-green-600">{peso(o.precio)}</span>}
+              <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${sel === o.v ? 'border-green-500 bg-green-500' : 'border-gray-300'}`}>
+                {sel === o.v && <span className="w-2 h-2 rounded-full bg-white" />}
+              </span>
+            </div>
+          </button>
+        ))}
+      </div>
+      <div className="flex gap-3 mt-5">
+        <button type="button" onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors">Cancelar</button>
+        <button type="button" disabled={saving} onClick={guardar} className="flex-[1.4] py-2.5 rounded-xl bg-green-600 text-white text-sm font-bold hover:bg-green-700 disabled:opacity-60 transition-colors">{saving ? 'Guardando...' : 'Guardar plan'}</button>
+      </div>
+    </Modal>
+  );
+}
+
 function Modal({ titulo, onClose, children }) {
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in-fast">
@@ -736,16 +1094,20 @@ function StatCard({ label, value, color }) {
 }
 
 const SPARK_ADMIN = "M2 18 L10 14 L18 16 L26 9 L34 11 L42 4";
+// Nombres de icono válidos (si `icon` no está acá, se asume emoji legacy).
+const STATCARD_ICONS = new Set(['box','store','bike','user','users','pin','phone','wallet','money','chart','clock','star','zap','plus','check','list','power','navigate']);
 function StatCard2({ icon, tint, label, value, delta, up, idx = 0 }) {
-  const tints = { green: 'bg-green-100', blue: 'bg-blue-100', purple: 'bg-purple-100', amber: 'bg-amber-100', gray: 'bg-gray-100' };
-  const strokes = { green: '#22C55E', blue: '#3B82F6', purple: '#A855F7', amber: '#F59E0B', gray: '#9CA3AF' };
+  const tints  = { green: 'bg-green-100 text-green-600', blue: 'bg-blue-100 text-blue-600', purple: 'bg-purple-100 text-purple-600', violet: 'bg-violet-100 text-violet-600', amber: 'bg-amber-100 text-amber-600', gray: 'bg-gray-100 text-gray-500' };
+  const strokes = { green: '#22C55E', blue: '#3B82F6', purple: '#A855F7', violet: '#7C3AED', amber: '#F59E0B', gray: '#9CA3AF' };
   return (
     <div
       style={{ animationDelay: `${idx * 60}ms` }}
       className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lift hover:border-gray-200 animate-slide-up cursor-default"
     >
       <div className="flex items-start justify-between">
-        <div className={`w-11 h-11 rounded-xl ${tints[tint]} flex items-center justify-center text-xl transition-transform duration-200 hover:scale-110`}>{icon}</div>
+        <div className={`w-11 h-11 rounded-xl ${tints[tint] ?? tints.green} flex items-center justify-center text-xl transition-transform duration-200 hover:scale-110`}>
+          {STATCARD_ICONS.has(icon) ? <Icon name={icon} className="w-5 h-5" /> : icon}
+        </div>
         <svg viewBox="0 0 44 22" className="w-16 h-8 opacity-70">
           <path d={SPARK_ADMIN} fill="none" stroke={up ? (strokes[tint] ?? '#22C55E') : '#9CA3AF'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>

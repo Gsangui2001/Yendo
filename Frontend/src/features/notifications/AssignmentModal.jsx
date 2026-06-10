@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../../lib/supabaseClient.js';
 import { apiFetch } from '../../lib/api.js';
+import { Icon } from '../../components/ui/Icon.jsx';
 
 const TIMER_SEG   = 120; // 2 minutos
 
@@ -189,7 +190,7 @@ export function AssignmentModal({ cadete, onAceptar }) {
         {/* Header */}
         <div className={['px-5 py-4 text-white', esBroadcast ? 'bg-orange-500' : 'bg-green-500'].join(' ')}>
           <div className="flex items-center gap-2 mb-1">
-            <span className="text-lg">{esBroadcast ? '📢' : '🚴'}</span>
+            <Icon name={esBroadcast ? 'zap' : 'bike'} className="w-5 h-5" />
             <span className="text-xs font-semibold uppercase tracking-wide opacity-90">
               {esBroadcast ? 'Pedido libre — primero que acepta' : 'Pedido asignado a vos'}
             </span>
@@ -211,23 +212,23 @@ export function AssignmentModal({ cadete, onAceptar }) {
         <div className="px-5 py-4 space-y-3">
           {/* Timer */}
           <div className={['text-center text-sm font-semibold', urgente ? 'text-red-600' : 'text-gray-500'].join(' ')}>
-            {urgente && '⚠️ '}{Math.floor(segundos / 60)}:{String(segundos % 60).padStart(2, '0')} para decidir
+            {Math.floor(segundos / 60)}:{String(segundos % 60).padStart(2, '0')} para decidir
           </div>
 
           {/* Detalles */}
           <div className="space-y-2 text-sm">
-            <div className="flex gap-2">
-              <span className="text-gray-400 w-5">📍</span>
+            <div className="flex items-start gap-2">
+              <Icon name="pin" className="w-4 h-4 mt-0.5 shrink-0 text-gray-400" />
               <span className="text-gray-700">{pedido.direccion ?? pedido.destino ?? '—'}</span>
             </div>
             {pedido.zona_label && (
-              <div className="flex gap-2">
-                <span className="text-gray-400 w-5">🗺️</span>
+              <div className="flex items-start gap-2">
+                <Icon name="navigate" className="w-4 h-4 mt-0.5 shrink-0 text-gray-400" />
                 <span className="text-gray-600">{pedido.zona_label}</span>
               </div>
             )}
-            <div className="flex gap-2">
-              <span className="text-gray-400 w-5">💰</span>
+            <div className="flex items-start gap-2">
+              <Icon name="money" className="w-4 h-4 mt-0.5 shrink-0 text-gray-400" />
               <span className="text-gray-700 font-semibold">
                 ${pedido.precio?.toLocaleString('es-AR') ?? '—'}
                 <span className="text-green-600 ml-1 text-xs font-normal">
@@ -235,8 +236,8 @@ export function AssignmentModal({ cadete, onAceptar }) {
                 </span>
               </span>
             </div>
-            <div className="flex gap-2">
-              <span className="text-gray-400 w-5">{pedido.metodo_pago === 'efectivo' ? '💵' : '💳'}</span>
+            <div className="flex items-start gap-2">
+              <Icon name="wallet" className="w-4 h-4 mt-0.5 shrink-0 text-gray-400" />
               <span className="text-gray-600 capitalize">{pedido.metodo_pago ?? 'efectivo'}</span>
             </div>
           </div>
@@ -250,9 +251,9 @@ export function AssignmentModal({ cadete, onAceptar }) {
             <button
               onClick={() => rechazarPedido(pedido)}
               disabled={cargando}
-              className="flex-1 py-3 rounded-xl border-2 border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50 active:scale-95 transition-all disabled:opacity-50"
+              className="flex-1 py-3 rounded-xl border-2 border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
             >
-              ✕ Rechazar
+              <Icon name="x" className="w-4 h-4" /> Rechazar
             </button>
             <button
               onClick={aceptarPedido}
@@ -261,7 +262,7 @@ export function AssignmentModal({ cadete, onAceptar }) {
             >
               {cargando
                 ? <><svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg> Aceptando...</>
-                : '✓ Aceptar'
+                : <><Icon name="check" className="w-4 h-4" /> Aceptar</>
               }
             </button>
           </div>

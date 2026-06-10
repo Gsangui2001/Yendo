@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../../lib/supabaseClient';
+import { apiFetch } from '../../lib/api';
+import { Icon } from '../ui/Icon';
 
 const SEGUNDOS_LIMITE = 30;
 
@@ -96,9 +98,8 @@ export default function NotificacionesPedidos({ cadete, onAceptar }) {
     clearInterval(timerRef.current);
 
     try {
-      const res = await fetch(`/api/ordenes/${pedido.id}/aceptar`, {
+      const res = await apiFetch(`/api/ordenes/${pedido.id}/aceptar`, {
         method:  'PATCH',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cadete_id: cadete.id }),
       });
 
@@ -168,17 +169,17 @@ export default function NotificacionesPedidos({ cadete, onAceptar }) {
         {/* Detalles */}
         <div className="px-6 py-5 space-y-3">
           {direccionLabel && (
-            <Fila icono="📍" label="Dirección" valor={direccionLabel} />
+            <Fila icono="pin" label="Dirección" valor={direccionLabel} />
           )}
           {esParticular && pedido.destino && (
-            <Fila icono="🏁" label="Destino" valor={pedido.destino} />
+            <Fila icono="navigate" label="Destino" valor={pedido.destino} />
           )}
           {pedido.zona_label && !esParticular && (
-            <Fila icono="🗺️" label="Zona" valor={pedido.zona_label} />
+            <Fila icono="navigate" label="Zona" valor={pedido.zona_label} />
           )}
           {esParticular && pedido.metodo_pago && (
             <Fila
-              icono={pedido.metodo_pago === 'efectivo' ? '💵' : '💳'}
+              icono={pedido.metodo_pago === 'efectivo' ? 'money' : 'wallet'}
               label="Pago"
               valor={pedido.metodo_pago === 'efectivo' ? 'Efectivo al cadete' : 'Tarjeta a Yendo'}
             />
@@ -215,7 +216,7 @@ export default function NotificacionesPedidos({ cadete, onAceptar }) {
               text-base hover:bg-gray-50 active:scale-95 transition-all
               disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            ✕ Rechazar
+            <span className="flex items-center justify-center gap-1.5"><Icon name="x" className="w-4 h-4" /> Rechazar</span>
           </button>
           <button
             onClick={aceptar}
@@ -224,7 +225,7 @@ export default function NotificacionesPedidos({ cadete, onAceptar }) {
               hover:bg-green-700 active:scale-95 transition-all
               disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            {aceptando ? 'Aceptando...' : '✓ Aceptar'}
+            {aceptando ? 'Aceptando...' : <span className="flex items-center justify-center gap-1.5"><Icon name="check" className="w-4 h-4" /> Aceptar</span>}
           </button>
         </div>
 
@@ -237,7 +238,7 @@ export default function NotificacionesPedidos({ cadete, onAceptar }) {
 function Fila({ icono, label, valor }) {
   return (
     <div className="flex items-start gap-3">
-      <span className="text-lg mt-0.5">{icono}</span>
+      <span className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-lg bg-gray-100 text-gray-500"><Icon name={icono} className="w-4 h-4" /></span>
       <div className="flex-1 min-w-0">
         <p className="text-xs text-gray-400 font-medium">{label}</p>
         <p className="text-sm text-gray-800 font-semibold truncate">{valor}</p>

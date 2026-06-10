@@ -5,6 +5,8 @@ import cors from 'cors';
 import ordenesRouter from '../routes/ordenes.js';
 import cadetesRouter from '../routes/cadetes.js';
 import adminRouter   from '../routes/admin.js';
+import clientesRouter from '../routes/clientes.js';
+import direccionesRouter from '../routes/direcciones.js';
 
 const PORT = Number(process.env.PORT || 3001);
 const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173')
@@ -33,6 +35,8 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 app.use('/api/ordenes', ordenesRouter);
 app.use('/api/cadetes', cadetesRouter);
 app.use('/api/admin',   adminRouter);
+app.use('/api/clientes', clientesRouter);
+app.use('/api/direcciones', direccionesRouter);
 
 // ── Start ──────────────────────────────────────────────────────────────────
 app.listen(PORT, () => {

@@ -17,3 +17,16 @@ export async function apiFetch(path, options = {}) {
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`;
   return fetch(url, { ...options, headers });
 }
+
+// Extrae un mensaje de error claro de una respuesta no-ok del backend.
+// Soporta { error } y { errores: [...] }, con fallback al status.
+export async function readApiError(res) {
+  try {
+    const data = await res.json();
+    if (data?.error) return data.error;
+    if (Array.isArray(data?.errores) && data.errores.length) return data.errores.join(', ');
+  } catch {
+    /* respuesta sin JSON */
+  }
+  return `Error ${res.status}. Probá de nuevo.`;
+}

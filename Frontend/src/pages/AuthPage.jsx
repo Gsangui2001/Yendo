@@ -7,12 +7,20 @@ const ROLES = [
   { value: 'privado',  emoji: '👤', label: 'Privado',   desc: 'Enviá algo o hacé un mandado personal' },
 ];
 
+const DEMO_ACCOUNTS = [
+  { rol: 'comercio', label: 'Comercio', email: 'comercio@yendo.com', password: 'Yendo2026!' },
+  { rol: 'cadete', label: 'Cadete', email: 'cadete@yendo.com', password: 'Yendo2026!' },
+  { rol: 'privado', label: 'Privado', email: 'privado@yendo.com', password: 'Yendo2026!' },
+  { rol: 'admin', label: 'Admin', email: 'admin@yendo.com', password: 'Yendo2026!' },
+];
+
 export default function AuthPage() {
   const [mode,    setMode]    = useState('login');
   const [step,    setStep]    = useState('select');
   const [rol,     setRol]     = useState('');
   const [form,    setForm]    = useState({ nombre: '', email: '', password: '', confirm: '' });
   const [loading, setLoading] = useState(false);
+  const [demoLoading, setDemoLoading] = useState('');
   const [error,   setError]   = useState('');
 
   function f(name) {
@@ -21,13 +29,18 @@ export default function AuthPage() {
 
   async function handleLogin(e) {
     e.preventDefault();
+    await signIn(form.email, form.password);
+  }
+
+  async function signIn(email, password, demoRol = '') {
     setError('');
-    if (!form.email.trim()) return setError('Ingresá tu email');
-    if (!form.password)     return setError('Ingresá tu contraseña');
+    if (!email.trim()) return setError('Ingresá tu email');
+    if (!password)     return setError('Ingresá tu contraseña');
     setLoading(true);
+    if (demoRol) setDemoLoading(demoRol);
     try {
       const { error: err } = await supabase.auth.signInWithPassword({
-        email: form.email.trim(), password: form.password,
+        email: email.trim(), password,
       });
       if (err) {
         if (err.message.includes('Invalid login')) throw new Error('Email o contraseña incorrectos');
@@ -38,6 +51,7 @@ export default function AuthPage() {
       setError(err.message);
     } finally {
       setLoading(false);
+      setDemoLoading('');
     }
   }
 
@@ -111,6 +125,30 @@ export default function AuthPage() {
             ) : 'Iniciar sesión'}
           </button>
         </form>
+
+        <div className="mt-5 rounded-2xl border border-gray-100 bg-gray-50 p-3">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-bold text-gray-900">Ingresar como</p>
+              <p className="text-xs text-gray-500">Accesos rápidos para probar la beta</p>
+            </div>
+            <span className="rounded-full bg-green-100 px-2 py-1 text-[11px] font-bold text-green-700">Demo</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {DEMO_ACCOUNTS.map(account => (
+              <button
+                key={account.rol}
+                type="button"
+                disabled={loading}
+                onClick={() => signIn(account.email, account.password, account.rol)}
+                className="rounded-xl border border-white bg-white px-3 py-2.5 text-left text-sm font-bold text-gray-800 shadow-sm transition-all hover:-translate-y-0.5 hover:border-green-200 hover:bg-green-50 disabled:opacity-60"
+              >
+                {demoLoading === account.rol ? 'Ingresando...' : account.label}
+                <span className="mt-0.5 block truncate text-[11px] font-medium text-gray-400">{account.email}</span>
+              </button>
+            ))}
+          </div>
+        </div>
 
         <div className="flex items-center gap-3 my-5">
           <div className="flex-1 h-px bg-gray-100" />
@@ -252,10 +290,10 @@ function Page({ children }) {
     <div className="min-h-screen auth-bg flex items-center justify-center p-4">
       {/* Decoración de fondo */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-32 -right-32 w-80 h-80 rounded-full bg-green-200/20 blur-3xl animate-float" />
-        <div className="absolute -bottom-32 -left-32 w-96 h-96 rounded-full bg-green-300/15 blur-3xl" style={{ animationDelay: '1.5s' }} />
+        <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-white/70 to-transparent" />
+        <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-green-100/60 to-transparent" />
       </div>
-      <div className="w-full max-w-sm relative">
+      <div className="w-full max-w-md relative">
         {children}
       </div>
     </div>

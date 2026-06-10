@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { apiFetch } from '../../lib/api';
+import { Icon } from '../ui/Icon';
 
 const SURCHARGE     = 500; // recargo para particulares
 
@@ -19,13 +20,13 @@ const METODOS_PAGO = [
     value: 'efectivo',
     label: 'Pagar al cadete',
     descripcion: 'Efectivo cuando llegue',
-    icon: '💵',
+    icon: 'money',
   },
   {
     value: 'tarjeta',
     label: 'Pagar a Yendo',
     descripcion: 'Tarjeta antes de que salga',
-    icon: '💳',
+    icon: 'wallet',
   },
 ];
 
@@ -175,7 +176,7 @@ export default function SolicitarCadete({ usuarioId, onPedidoCreado }) {
             shadow-lg text-white text-sm font-semibold transition-all max-w-xs
             ${toast.type === 'error' ? 'bg-red-500' : toast.type === 'warn' ? 'bg-amber-500' : 'bg-green-600'}`}
         >
-          <span>{toast.type === 'error' ? '✕' : toast.type === 'warn' ? '⚠️' : '✓'}</span>
+          <Icon name={toast.type === 'error' ? 'x' : toast.type === 'warn' ? 'clock' : 'check'} className="w-4 h-4" />
           {toast.message}
         </div>
       )}
@@ -277,9 +278,9 @@ export default function SolicitarCadete({ usuarioId, onPedidoCreado }) {
               ))}
             </select>
             {precio != null && (
-              <p className="text-xs text-gray-500 mt-1.5">
-                💰 Precio del envío: <strong className="text-gray-800">${precio.toLocaleString('es-AR')}</strong>
-                <span className="text-gray-400 ml-1">(incluye recargo particular de ${SURCHARGE.toLocaleString('es-AR')})</span>
+              <p className="text-xs text-gray-500 mt-1.5 flex items-center gap-1 flex-wrap">
+                <Icon name="money" className="w-3.5 h-3.5 text-green-600" /> Precio del envío: <strong className="text-gray-800">${precio.toLocaleString('es-AR')}</strong>
+                <span className="text-gray-400">(incluye recargo particular de ${SURCHARGE.toLocaleString('es-AR')})</span>
               </p>
             )}
           </Field>
@@ -302,7 +303,7 @@ export default function SolicitarCadete({ usuarioId, onPedidoCreado }) {
                       : 'border-gray-200 hover:border-gray-300'
                     }`}
                 >
-                  <span className="text-2xl">{m.icon}</span>
+                  <span className={`flex h-9 w-9 items-center justify-center rounded-xl ${form.metodoPago === m.value ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-500'}`}><Icon name={m.icon} className="w-5 h-5" /></span>
                   <span className="text-sm font-semibold text-gray-800">{m.label}</span>
                   <span className="text-xs text-gray-500">{m.descripcion}</span>
                 </button>

@@ -199,6 +199,7 @@ function navByRol(rol) {
     { key: 'pedido',    label: 'Nuevo pedido', icon: 'pedidos' },
     { key: 'historial', label: 'Pedidos',      icon: 'reportes' },
     { key: 'clientes',  label: 'Clientes',     icon: 'clientes' },
+    { key: 'saldo',     label: 'Saldo y plan', icon: 'facturacion' },
   ];
   if (rol === 'cadete') return [
     { key: 'inicio',    label: 'Inicio',    icon: 'inicio' },
@@ -217,6 +218,7 @@ function navByRol(rol) {
     { key: 'pedidos',   label: 'Pedidos',   icon: 'pedidos' },
     { key: 'cadetes',   label: 'Cadetes',   icon: 'cadetes' },
     { key: 'comercios', label: 'Comercios', icon: 'comercios' },
+    { key: 'finanzas',  label: 'Finanzas',  icon: 'facturacion' },
     { key: 'precios',   label: 'Precios',   icon: 'precios' },
   ];
   return [];

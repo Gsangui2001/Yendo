@@ -7,6 +7,9 @@ import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { Spinner } from '../../components/ui/Spinner';
 import { apiFetch } from '../../lib/api';
+import { useToast, useConfirm } from '../../components/ui/feedback';
+import { Icon } from '../../components/ui/Icon';
+import { TrackingMap } from '../../features/tracking/TrackingMapLazy';
 
 function fmt(n) { return `$${Number(n ?? 0).toLocaleString('es-AR')}`; }
 function fmtFecha(ts) {
@@ -15,6 +18,8 @@ function fmtFecha(ts) {
 }
 
 export default function CadeteApp({ perfil, page }) {
+  const toast = useToast();
+  const confirm = useConfirm();
   const [cadete,      setCadete]      = useState(null);
   const [ordenes,     setOrdenes]     = useState([]);
   const [ordenActiva, setOrdenActiva] = useState(null);
@@ -91,7 +96,8 @@ export default function CadeteApp({ perfil, page }) {
 
   async function marcarEntregado() {
     if (!ordenActiva || accion) return;
-    if (!window.confirm('¿Confirmar entrega del pedido?')) return;
+    const ok = await confirm({ title: 'Confirmar entrega', message: '¿Marcar este pedido como entregado?', confirmLabel: 'Sí, entregado' });
+    if (!ok) return;
     setAccion(true);
     try {
       const res = await apiFetch(`/api/ordenes/${ordenActiva.id}/entregar`, {
@@ -101,8 +107,13 @@ export default function CadeteApp({ perfil, page }) {
       if (res.ok) {
         setOrdenActiva(null);
         await cargarDatos();
+        toast.success('¡Entrega confirmada!');
+      } else {
+        toast.error('No se pudo confirmar la entrega.');
       }
-    } catch {}
+    } catch {
+      toast.error('No se pudo confirmar la entrega. Revisá tu conexión.');
+    }
     setAccion(false);
   }
 
@@ -139,7 +150,7 @@ export default function CadeteApp({ perfil, page }) {
         />
       )}
 
-      <div className="space-y-4 animate-fade-in max-w-lg mx-auto">
+      <div className="space-y-4 animate-fade-in max-w-3xl mx-auto">
         {/* Estado */}
         <Card>
           <div className="flex items-center justify-between">
@@ -187,29 +198,52 @@ export default function CadeteApp({ perfil, page }) {
 
         {/* Pedido en curso */}
         {ordenActiva && (
-          <PedidoEnCurso
-            orden={ordenActiva}
-            accion={accion}
-            onEnCamino={marcarEnCamino}
-            onEntregar={marcarEntregado}
-          />
+          <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+            <TrackingMap
+              order={ordenActiva}
+              cadete={cadete}
+              height={380}
+              compact
+            />
+            <PedidoEnCurso
+              orden={ordenActiva}
+              accion={accion}
+              onEnCamino={marcarEnCamino}
+              onEntregar={marcarEntregado}
+            />
+          </div>
         )}
 
         {/* Esperando pedidos */}
         {disponible && !ordenActiva && (
-          <Card className="text-center py-8">
-            <div className="text-4xl mb-3 animate-float">🛵</div>
-            <p className="font-semibold text-gray-700">Esperando pedidos...</p>
-            <p className="text-sm text-gray-400 mt-1">Te llegará una notificación automáticamente</p>
+          <Card className="text-center py-10">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-green-50 text-green-600">
+              <Icon name="bike" className="w-8 h-8" />
+            </div>
+            <p className="font-bold text-gray-800">Esperando pedidos</p>
+            <p className="text-sm text-gray-400 mt-1">Apenas haya un envío en tu zona te avisamos al instante</p>
+            <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-green-50 px-3 py-1.5 text-xs font-bold text-green-700">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
+              </span>
+              Conectado y disponible
+            </div>
           </Card>
         )}
 
         {/* Offline */}
         {!disponible && !enViaje && (
-          <Card className="text-center py-8 border-dashed">
-            <p className="text-3xl mb-3">😴</p>
-            <p className="font-semibold text-gray-600">Estás offline</p>
-            <p className="text-sm text-gray-400 mt-1">Activá el toggle para empezar a recibir pedidos</p>
+          <Card className="text-center py-10 border-dashed">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gray-100 text-gray-400">
+              <Icon name="power" className="w-8 h-8" />
+            </div>
+            <p className="font-bold text-gray-700">Estás offline</p>
+            <p className="text-sm text-gray-400 mt-1">Activá tu jornada para empezar a recibir pedidos</p>
+            <button onClick={toggleEstado} disabled={accion}
+              className="mt-4 rounded-xl bg-green-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-green-700 disabled:opacity-60 transition-colors">
+              Conectarme
+            </button>
           </Card>
         )}
       </div>
@@ -218,37 +252,57 @@ export default function CadeteApp({ perfil, page }) {
 }
 
 function PedidoEnCurso({ orden, accion, onEnCamino, onEntregar }) {
-  const estadoColor = orden.estado === 'en_camino' ? 'bg-blue-500' : 'bg-green-500';
+  const enCamino = orden.estado === 'en_camino';
+  const ganancia = Math.round((orden.precio ?? 0) * 0.82);
+  const destino = orden.direccion ?? orden.destino ?? orden.zona_label ?? 'Destino del pedido';
 
   return (
     <Card className="border-2 border-green-200 bg-gradient-to-br from-green-50 to-emerald-50 animate-bounce-in">
-      <div className={['rounded-xl px-3 py-2 text-white text-xs font-semibold mb-3 inline-block', estadoColor].join(' ')}>
-        {orden.estado === 'en_camino' ? '🚴 En camino' : '✅ Asignado — preparate'}
+      <div className={['inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-white text-xs font-bold mb-4', enCamino ? 'bg-blue-500' : 'bg-green-600'].join(' ')}>
+        <Icon name={enCamino ? 'bike' : 'check'} className="w-3.5 h-3.5" />
+        {enCamino ? 'En camino' : 'Asignado — preparate'}
       </div>
 
-      <div className="space-y-1.5 text-sm mb-4">
-        <p className="font-bold text-gray-900 text-base">{orden.cliente_nombre ?? orden.descripcion ?? 'Pedido'}</p>
-        <p className="text-gray-600">📍 {orden.direccion ?? orden.destino}</p>
-        {orden.zona_label && <p className="text-gray-500">🗺️ {orden.zona_label}</p>}
-        <p className="text-gray-700 font-semibold">
-          💰 {`$${Number(orden.precio ?? 0).toLocaleString('es-AR')}`}
-          <span className="text-green-600 font-normal text-xs ml-1">
-            (tuyo: {`$${Math.round((orden.precio ?? 0) * 0.82).toLocaleString('es-AR')}`})
+      {/* Destino prominente */}
+      <div className="rounded-2xl bg-white p-4 mb-3">
+        <div className="flex items-start gap-3">
+          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-green-100 text-green-600">
+            <Icon name="pin" className="w-5 h-5" />
           </span>
-        </p>
-        <p className="text-gray-500">
-          {orden.metodo_pago === 'efectivo' ? '💵' : '💳'} {orden.metodo_pago ?? 'efectivo'}
-        </p>
+          <div className="min-w-0">
+            <p className="text-xs font-semibold text-gray-400">Entregar en</p>
+            <p className="font-bold text-gray-900 leading-snug">{destino}</p>
+            {orden.zona_label && <p className="text-xs text-gray-500 mt-0.5">{orden.zona_label}</p>}
+          </div>
+        </div>
+        <div className="mt-3 flex items-center gap-2 border-t border-gray-100 pt-3 text-sm">
+          <Icon name="user" className="w-4 h-4 text-gray-400" />
+          <span className="font-semibold text-gray-700 truncate">{orden.cliente_nombre ?? orden.descripcion ?? 'Cliente'}</span>
+        </div>
       </div>
 
-      <div className="flex gap-2">
+      {/* Ganancia del viaje */}
+      <div className="mb-4 flex items-center justify-between rounded-2xl bg-white p-4">
+        <div>
+          <p className="text-xs font-semibold text-gray-400">Tu ganancia (82%)</p>
+          <p className="text-2xl font-extrabold text-green-600">${ganancia.toLocaleString('es-AR')}</p>
+        </div>
+        <div className="text-right">
+          <p className="text-xs text-gray-400">Total envío</p>
+          <p className="text-sm font-bold text-gray-700">${Number(orden.precio ?? 0).toLocaleString('es-AR')}</p>
+          <p className="text-[11px] text-gray-400 capitalize">{orden.metodo_pago ?? 'efectivo'}</p>
+        </div>
+      </div>
+
+      {/* Botones grandes */}
+      <div className="flex flex-col gap-2.5">
         {orden.estado === 'asignada' && (
-          <Button onClick={onEnCamino} loading={accion} fullWidth variant="outline">
-            🚴 Salí a entregar
+          <Button onClick={onEnCamino} loading={accion} fullWidth variant="outline" className="py-3.5 text-base">
+            <span className="flex items-center justify-center gap-2"><Icon name="bike" className="w-5 h-5" /> Salí a entregar</span>
           </Button>
         )}
-        <Button onClick={onEntregar} loading={accion} fullWidth>
-          ✓ Entregado
+        <Button onClick={onEntregar} loading={accion} fullWidth className="py-3.5 text-base">
+          <span className="flex items-center justify-center gap-2"><Icon name="check" className="w-5 h-5" /> Marcar entregado</span>
         </Button>
       </div>
     </Card>
@@ -339,7 +393,11 @@ function JornadaView({ cadete, disponible, enViaje, duracion, toggleEstado, acci
           </span>
         </div>
 
-        {duracion && <p className="text-sm text-gray-500 mb-3">⏱ Tiempo activo: <strong>{duracion}</strong></p>}
+        {duracion && (
+          <p className="text-sm text-gray-500 mb-3 flex items-center gap-1.5">
+            <Icon name="clock" className="w-4 h-4 text-gray-400" /> Tiempo activo: <strong className="text-gray-700">{duracion}</strong>
+          </p>
+        )}
 
         <div className="grid grid-cols-3 gap-3 mb-4">
           {[
@@ -360,8 +418,12 @@ function JornadaView({ cadete, disponible, enViaje, duracion, toggleEstado, acci
           disabled={enViaje}
           variant={disponible ? 'danger' : 'primary'}
           fullWidth
+          className="py-3 text-base"
         >
-          {disponible ? '⏹ Pausar jornada' : '▶ Iniciar jornada'}
+          <span className="flex items-center justify-center gap-2">
+            <Icon name="power" className="w-5 h-5" />
+            {disponible ? 'Pausar jornada' : 'Iniciar jornada'}
+          </span>
         </Button>
       </Card>
     </div>

@@ -11,3 +11,11 @@ build/
 # Tooling local (skills descargadas) — no es parte de la app
 .agents/
 skills-lock.json
+.gstack/
+
+# Backups locales (zips de respaldo)
+backups/
+
+# Dependencias por workspace (ya cubiertas por node_modules/, explícitas por las dudas)
+Backend/node_modules/
+Frontend/node_modules/

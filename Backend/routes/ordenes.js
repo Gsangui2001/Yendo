@@ -60,6 +60,16 @@ router.post('/', async (req, res) => {
     if (comercioError || !comercio || comercio.owner_id !== req.user.id || !comercio.activo) {
       return res.status(403).json({ error: 'Comercio no habilitado para crear este pedido' });
     }
+
+    const { data: cliente, error: clienteError } = await supabase
+      .from('clientes')
+      .select('id, comercio_id')
+      .eq('id', body.cliente_id)
+      .single();
+
+    if (clienteError || !cliente || cliente.comercio_id !== body.comercio_id) {
+      return res.status(403).json({ error: 'Cliente no pertenece al comercio indicado' });
+    }
   }
 
   const ordenData = {
@@ -148,11 +158,48 @@ router.get('/', async (req, res) => {
     .select('*')
     .order('creado_en', { ascending: false });
 
+  if (!isAdmin(req)) {
+    if (req.perfil?.rol === 'comercio') {
+      const { data: comercios, error: comerciosError } = await supabase
+        .from('comercios')
+        .select('id')
+        .eq('owner_id', req.user.id);
+
+      if (comerciosError) {
+        return res.status(500).json({ error: 'No se pudo validar el comercio' });
+      }
+
+      const ids = (comercios || []).map((comercio) => comercio.id);
+      if (!ids.length) return res.json([]);
+      if (comercio_id && !ids.includes(comercio_id)) {
+        return res.status(403).json({ error: 'No podes leer pedidos de otro comercio' });
+      }
+      query = query.in('comercio_id', ids);
+    } else if (req.perfil?.rol === 'privado') {
+      if (usuario_id && usuario_id !== req.user.id) {
+        return res.status(403).json({ error: 'No podes leer pedidos de otro usuario' });
+      }
+      query = query.eq('solicitante_id', req.user.id);
+    } else if (req.perfil?.rol === 'cadete') {
+      const { data: cadete } = await supabase
+        .from('cadetes')
+        .select('zona')
+        .eq('id', req.user.id)
+        .single();
+      const zonaCadete = cadete?.zona || '';
+      query = query.or(
+        `cadete_id.eq.${req.user.id},asignado_a_id.eq.${req.user.id},and(estado.eq.pendiente,broadcast_en.not.is.null,zona.eq.${zonaCadete})`
+      );
+    } else {
+      return res.status(403).json({ error: 'Rol no autorizado' });
+    }
+  }
+
   if (comercio_id) query = query.eq('comercio_id', comercio_id);
-  if (usuario_id)  query = query.eq('solicitante_id', usuario_id);
+  if (usuario_id && isAdmin(req))  query = query.eq('solicitante_id', usuario_id);
   if (estado)      query = query.eq('estado', estado);
   if (zona)        query = query.eq('zona', zona);
-  if (cadete_id) {
+  if (cadete_id && isAdmin(req)) {
     query = query.or(`cadete_id.eq.${cadete_id},asignado_a_id.eq.${cadete_id}`);
   }
   if (disponibles === 'true') {

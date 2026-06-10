@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import SolicitarCadete from '../../components/Particular/SolicitarCadete';
+import { apiFetch, readApiError } from '../../lib/api';
+import { useToast, useConfirm } from '../../components/ui/feedback';
+import { Icon } from '../../components/ui/Icon';
+import { TrackingMap } from '../../features/tracking/TrackingMapLazy';
 
 const ESTADO_CHIP = {
   pendiente: 'bg-amber-100 text-amber-700',
@@ -10,16 +14,17 @@ const ESTADO_CHIP = {
   cancelada: 'bg-red-100 text-red-400',
 };
 const ESTADO_LABEL = {
-  pendiente: '🔍 Buscando cadete',
-  asignada:  '✅ Cadete asignado',
-  en_camino: '🚴 En camino',
-  entregada: '📦 Entregado',
-  cancelada: '❌ Cancelado',
+  pendiente: 'Buscando cadete',
+  asignada:  'Cadete asignado',
+  en_camino: 'En camino',
+  entregada: 'Entregado',
+  cancelada: 'Cancelado',
 };
 
 export default function PrivadoApp({ perfil, page, setPage }) {
   const [ordenes,  setOrdenes]  = useState([]);
   const [tracking, setTracking] = useState(null);
+  const [cadeteTracking, setCadeteTracking] = useState(null);
   const [loading,  setLoading]  = useState(true);
 
   useEffect(() => { cargarOrdenes(); }, [perfil]);
@@ -41,20 +46,30 @@ export default function PrivadoApp({ perfil, page, setPage }) {
     const { data } = await supabase.from('ordenes').select('*')
       .eq('solicitante_id', perfil.id).order('creado_en', { ascending: false }).limit(20);
     setOrdenes(data ?? []);
+    const activa = (data ?? []).find(o => ['pendiente','asignada','en_camino'].includes(o.estado));
+    setTracking(prev => prev ? ((data ?? []).find(o => o.id === prev.id) ?? activa ?? null) : (activa ?? null));
     setLoading(false);
   }
 
+  // Trae el cadete asignado al pedido en seguimiento (nombre, teléfono, GPS)
+  const cadeteId = tracking?.cadete_id ?? tracking?.asignado_a_id ?? null;
+  useEffect(() => {
+    if (!cadeteId) { setCadeteTracking(null); return; }
+    let vivo = true;
+    supabase.from('cadetes').select('nombre,telefono,estado,ubicacion_lat,ubicacion_lng').eq('id', cadeteId).maybeSingle()
+      .then(({ data }) => { if (vivo) setCadeteTracking(data ?? null); });
+    return () => { vivo = false; };
+  }, [cadeteId]);
+
   function onPedidoCreado(ordenId) {
-    cargarOrdenes().then(() => {
-      const orden = ordenes.find(o => o.id === ordenId);
-      if (orden) setTracking(orden);
-    });
-    setPage('historial');
+    cargarOrdenes().then(() => setTracking(prev => prev ?? ordenes.find(o => o.id === ordenId) ?? null));
+    setPage('inicio');
   }
 
   if (loading) return <Spinner />;
 
   const activas = ordenes.filter(o => ['pendiente','asignada','en_camino'].includes(o.estado));
+  const trackingOrden = tracking ?? activas[0] ?? null;
 
   if (page === 'solicitar') return (
     <SolicitarCadete usuarioId={perfil.id} onPedidoCreado={onPedidoCreado} />
@@ -65,9 +80,12 @@ export default function PrivadoApp({ perfil, page, setPage }) {
       <h2 className="text-xl font-bold">Mis pedidos</h2>
 
       {activas.length > 0 && (
-        <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4">
-          <p className="text-sm font-semibold text-blue-700 mb-3">📡 Pedidos activos</p>
-          {activas.map(o => <TrackingCard key={o.id} orden={o} />)}
+        <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm">
+          <p className="text-sm font-semibold text-gray-900 mb-3">Seguimiento activo</p>
+          <TrackingMap order={trackingOrden} cadete={cadeteTracking} height={320} compact />
+          <div className="mt-3 space-y-2">
+            {activas.map(o => <TrackingCard key={o.id} orden={o} cadete={trackingOrden?.id === o.id ? cadeteTracking : null} onClick={() => setTracking(o)} active={trackingOrden?.id === o.id} />)}
+          </div>
         </div>
       )}
 
@@ -106,9 +124,9 @@ export default function PrivadoApp({ perfil, page, setPage }) {
 
   // ── INICIO ──
   return (
-    <div className="space-y-5 max-w-lg mx-auto">
+    <div className="space-y-5 max-w-3xl mx-auto">
       <div className="bg-gradient-to-br from-green-600 to-green-700 rounded-2xl p-6 text-white">
-        <p className="text-green-200 text-sm mb-1">Hola, {perfil.nombre?.split(' ')[0]} 👋</p>
+        <p className="text-green-200 text-sm mb-1">Hola, {perfil.nombre?.split(' ')[0]}</p>
         <h2 className="text-2xl font-bold mb-3">¿Necesitás un cadete?</h2>
         <p className="text-green-100 text-sm mb-5">Enviá un paquete, buscá algo o hacé un trámite. Rápido y sin complicaciones.</p>
         <button onClick={() => setPage('solicitar')}
@@ -117,14 +135,29 @@ export default function PrivadoApp({ perfil, page, setPage }) {
         </button>
       </div>
 
-      {activas.length > 0 && (
-        <div className="bg-white rounded-2xl border border-gray-100 p-5">
-          <h3 className="font-bold mb-3">📡 Pedidos en curso</h3>
-          <div className="space-y-3">
-            {activas.map(o => <TrackingCard key={o.id} orden={o} />)}
+      <div className="grid gap-5 lg:grid-cols-[1.25fr_0.75fr]">
+        <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <h3 className="font-bold text-gray-900">Mapa del pedido</h3>
+              <p className="text-xs text-gray-400">
+                {trackingOrden ? 'Seguimiento en vivo del envío' : 'Cuando pidas un cadete, lo vas a ver acá'}
+              </p>
+            </div>
+            <button onClick={() => setPage('solicitar')} className="rounded-xl bg-green-600 px-3 py-2 text-xs font-bold text-white hover:bg-green-700">
+              Pedir
+            </button>
           </div>
+          <TrackingMap order={trackingOrden ?? { estado: 'pendiente', zona: 'ciudad_colon', destino: 'Destino del envío' }} cadete={cadeteTracking} height={360} compact />
         </div>
-      )}
+
+        <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+          <h3 className="font-bold mb-3">Pedidos en curso</h3>
+          {activas.length === 0
+            ? <p className="text-sm text-gray-400">No tenés pedidos activos.</p>
+            : <div className="space-y-3">{activas.map(o => <TrackingCard key={o.id} orden={o} cadete={trackingOrden?.id === o.id ? cadeteTracking : null} onClick={() => setTracking(o)} active={trackingOrden?.id === o.id} />)}</div>}
+        </div>
+      </div>
 
       {ordenes.length > 0 && (
         <div className="bg-white rounded-2xl border border-gray-100 p-5">
@@ -147,10 +180,10 @@ export default function PrivadoApp({ perfil, page, setPage }) {
       )}
 
       <div className="grid grid-cols-2 gap-3">
-        <TipoCard emoji="📦" label="Enviar paquete" onClick={() => setPage('solicitar')} />
-        <TipoCard emoji="🛒" label="Buscar algo"    onClick={() => setPage('solicitar')} />
-        <TipoCard emoji="📋" label="Hacer trámite"  onClick={() => setPage('solicitar')} />
-        <TipoCard emoji="📍" label="Mis direcciones" onClick={() => setPage('direcciones')} />
+        <TipoCard icon="box"   label="Enviar paquete"  onClick={() => setPage('solicitar')} />
+        <TipoCard icon="zap"   label="Buscar algo"     onClick={() => setPage('solicitar')} />
+        <TipoCard icon="list"  label="Hacer trámite"   onClick={() => setPage('solicitar')} />
+        <TipoCard icon="pin"   label="Mis direcciones" onClick={() => setPage('direcciones')} />
       </div>
     </div>
   );
@@ -158,6 +191,8 @@ export default function PrivadoApp({ perfil, page, setPage }) {
 
 // ── Gestión de direcciones guardadas ─────────────────────────────────────────
 function DireccionesGuardadas({ usuarioId }) {
+  const toast = useToast();
+  const confirm = useConfirm();
   const [direcciones,  setDirecciones]  = useState([]);
   const [loading,      setLoading]      = useState(true);
   const [showForm,     setShowForm]     = useState(false);
@@ -190,22 +225,39 @@ function DireccionesGuardadas({ usuarioId }) {
     e.preventDefault();
     if (!validate()) return;
     setSaving(true);
-    await supabase.from('direcciones').insert({
-      usuario_id: usuarioId,
-      nombre:     form.nombre.trim(),
-      direccion:  form.direccion.trim(),
-    });
-    await cargar();
-    setForm({ nombre: '', direccion: '' });
-    setErrors({});
-    setShowForm(false);
-    setSaving(false);
+    try {
+      const res = await apiFetch('/api/direcciones', {
+        method: 'POST',
+        body: JSON.stringify({
+          usuario_id: usuarioId,
+          nombre:     form.nombre.trim(),
+          direccion:  form.direccion.trim(),
+        }),
+      });
+      if (!res.ok) { toast.error(await readApiError(res)); return; }
+      await cargar();
+      setForm({ nombre: '', direccion: '' });
+      setErrors({});
+      setShowForm(false);
+      toast.success('Dirección guardada');
+    } catch {
+      toast.error('No se pudo guardar la dirección. Revisá tu conexión e intentá de nuevo.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function eliminar(id) {
-    if (!confirm('¿Eliminar esta dirección?')) return;
-    await supabase.from('direcciones').delete().eq('id', id);
-    cargar();
+    const ok = await confirm({ title: 'Eliminar dirección', message: 'Esta dirección guardada se va a borrar.', danger: true, confirmLabel: 'Eliminar' });
+    if (!ok) return;
+    try {
+      const res = await apiFetch(`/api/direcciones/${id}`, { method: 'DELETE' });
+      if (!res.ok) { toast.error(await readApiError(res)); return; }
+      cargar();
+      toast.success('Dirección eliminada');
+    } catch {
+      toast.error('No se pudo eliminar la dirección. Revisá tu conexión e intentá de nuevo.');
+    }
   }
 
   if (loading) return <Spinner />;
@@ -235,7 +287,7 @@ function DireccionesGuardadas({ usuarioId }) {
               <div key={d.id} className="bg-white rounded-2xl border border-gray-100 p-4 flex items-start justify-between">
                 <div>
                   <p className="font-semibold text-gray-900">{d.nombre}</p>
-                  <p className="text-sm text-gray-500 mt-0.5">📍 {d.direccion}</p>
+                  <p className="text-sm text-gray-500 mt-0.5 flex items-center gap-1"><Icon name="pin" className="w-3.5 h-3.5 text-gray-400" /> {d.direccion}</p>
                 </div>
                 <button
                   onClick={() => eliminar(d.id)}
@@ -288,32 +340,61 @@ function DireccionesGuardadas({ usuarioId }) {
   );
 }
 
-function TrackingCard({ orden }) {
+function TrackingCard({ orden, cadete, onClick, active }) {
+  const progreso = { pendiente: 'w-1/4', asignada: 'w-2/4', en_camino: 'w-3/4', entregada: 'w-full' }[orden.estado] ?? 'w-1/4';
   return (
-    <div className="bg-white rounded-xl border border-gray-100 p-3">
-      <div className="flex justify-between items-start">
-        <div>
-          <p className="text-sm font-semibold">{orden.descripcion ?? '—'}</p>
-          <p className="text-xs text-gray-400">{orden.origen} → {orden.destino}</p>
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      className={`w-full cursor-pointer text-left rounded-xl border p-3 transition-all ${active ? 'border-green-300 bg-green-50' : 'border-gray-100 bg-white hover:border-green-200 hover:bg-green-50'}`}
+    >
+      <div className="flex justify-between items-start gap-2">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-gray-900 truncate">{orden.descripcion ?? 'Pedido'}</p>
+          <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
+            <Icon name="pin" className="w-3 h-3 shrink-0" />
+            <span className="truncate">{orden.origen} → {orden.destino}</span>
+          </p>
         </div>
         <span className={`text-xs px-2 py-0.5 rounded-full font-semibold flex-shrink-0 ${ESTADO_CHIP[orden.estado]}`}>
           {ESTADO_LABEL[orden.estado]}
         </span>
       </div>
-      {['pendiente','asignada'].includes(orden.estado) && (
+
+      {(cadete?.nombre || orden.precio) && (
+        <div className="mt-2 flex items-center justify-between gap-2 border-t border-gray-100 pt-2">
+          {cadete?.nombre
+            ? <span className="flex min-w-0 items-center gap-1.5 text-xs text-gray-600">
+                <Icon name="bike" className="w-3.5 h-3.5 shrink-0 text-green-600" />
+                <span className="font-semibold truncate">{cadete.nombre}</span>
+                {cadete.telefono && (
+                  <a href={`tel:${cadete.telefono}`} onClick={e => e.stopPropagation()}
+                    className="ml-1 inline-flex shrink-0 items-center gap-0.5 font-semibold text-green-600 hover:text-green-700">
+                    <Icon name="phone" className="w-3 h-3" /> Llamar
+                  </a>
+                )}
+              </span>
+            : <span className="text-xs text-gray-400">Buscando cadete...</span>}
+          {orden.precio && <span className="text-sm font-bold text-gray-800 shrink-0">${Number(orden.precio).toLocaleString('es-AR')}</span>}
+        </div>
+      )}
+
+      {['pendiente','asignada','en_camino'].includes(orden.estado) && (
         <div className="mt-2 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-          <div className={`h-full rounded-full bg-green-500 transition-all duration-1000
-            ${orden.estado === 'pendiente' ? 'w-1/4 animate-pulse' : 'w-2/3'}`} />
+          <div className={`h-full rounded-full bg-green-500 transition-all duration-700 ${progreso} ${orden.estado === 'pendiente' ? 'animate-pulse' : ''}`} />
         </div>
       )}
     </div>
   );
 }
-function TipoCard({ emoji, label, onClick }) {
+function TipoCard({ icon, label, onClick }) {
   return (
     <button onClick={onClick}
-      className="bg-white border border-gray-100 rounded-2xl p-4 text-left hover:border-green-300 hover:bg-green-50 transition-colors">
-      <span className="text-2xl block mb-1">{emoji}</span>
+      className="group bg-white border border-gray-100 rounded-2xl p-4 text-left hover:border-green-300 hover:bg-green-50 transition-colors">
+      <span className="mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-green-50 text-green-600 transition-transform group-hover:scale-110">
+        <Icon name={icon} className="w-5 h-5" />
+      </span>
       <span className="text-sm font-semibold text-gray-700">{label}</span>
     </button>
   );

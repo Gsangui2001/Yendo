@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { apiFetch } from '../../lib/api';
+import { Icon } from '../ui/Icon';
 
 const LAST_ZONA_KEY = 'yendo_ultima_zona';
 
@@ -75,13 +76,18 @@ export default function Pedido({ comercioId, onSuccess }) {
   async function guardarNuevoCliente() {
     if (!nuevoCliente.nombre.trim()) return;
     setGuardandoCliente(true);
-    const { data, error } = await supabase.from('clientes').insert({
-      comercio_id: comercioId,
-      nombre:      nuevoCliente.nombre.trim(),
-      telefono:    nuevoCliente.telefono.trim(),
-      direccion:   nuevoCliente.direccion.trim(),
-      zona:        nuevoCliente.zona || null,
-    }).select().single();
+    const res = await apiFetch('/api/clientes', {
+      method: 'POST',
+      body: JSON.stringify({
+        comercio_id: comercioId,
+        nombre:      nuevoCliente.nombre.trim(),
+        telefono:    nuevoCliente.telefono.trim(),
+        direccion:   nuevoCliente.direccion.trim(),
+        zona:        nuevoCliente.zona || null,
+      }),
+    });
+    const data = await res.json().catch(() => null);
+    const error = res.ok ? null : data;
 
     if (!error && data) {
       await cargarClientes();
@@ -139,7 +145,7 @@ export default function Pedido({ comercioId, onSuccess }) {
     <div className="max-w-md mx-auto">
       {toast && (
         <div role="alert" className={`fixed top-4 right-4 z-50 flex items-center gap-2 px-5 py-3 rounded-xl shadow-lg text-white text-sm font-semibold max-w-xs ${toast.type === 'error' ? 'bg-red-500' : toast.type === 'warn' ? 'bg-amber-500' : 'bg-green-600'}`}>
-          <span>{toast.type === 'error' ? '✕' : toast.type === 'warn' ? '⚠️' : '✓'}</span>{toast.message}
+          <Icon name={toast.type === 'error' ? 'x' : toast.type === 'warn' ? 'clock' : 'check'} className="w-4 h-4" />{toast.message}
         </div>
       )}
 
