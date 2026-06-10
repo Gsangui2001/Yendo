@@ -202,7 +202,7 @@ function navByRol(rol) {
   ];
   if (rol === 'cadete') return [
     { key: 'inicio',    label: 'Inicio',    icon: 'inicio' },
-    { key: 'pedidos',   label: 'Pedidos',   icon: 'pedidos' },
+    { key: 'historial', label: 'Historial', icon: 'reportes' },
     { key: 'jornada',   label: 'Jornada',   icon: 'jornada' },
     { key: 'ganancias', label: 'Ganancias', icon: 'ganancias' },
   ];

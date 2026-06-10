@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 
+const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
+
 const LAST_ZONA_KEY = 'yendo_ultima_zona';
 
 export default function Pedido({ comercioId, onSuccess }) {
@@ -99,24 +101,27 @@ export default function Pedido({ comercioId, onSuccess }) {
     try {
       const precio = zonaData?.precio ?? 0;
       const cliente = clientes.find(c => c.id === form.clienteId);
-      const { error } = await supabase.from('ordenes').insert({
-        comercio_id:    comercioId,
-        cliente_id:     form.clienteId,
-        cliente_nombre: cliente?.nombre,
-        direccion:      form.direccion,
-        zona:           form.zona,
-        zona_label:     zonaData?.label,
-        precio,
-        tipo:           'comercio',
-        prioridad:      'alta',
-        estado:         'pendiente',
+      // Pasar por el backend para disparar el motor de asignación automática
+      const res = await fetch(`${API_BASE}/api/ordenes`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          comercio_id:    comercioId,
+          cliente_id:     form.clienteId,
+          cliente_nombre: cliente?.nombre,
+          direccion:      form.direccion,
+          zona:           form.zona,
+          zona_label:     zonaData?.label,
+          precio,
+        }),
       });
-      if (error) throw error;
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
 
-      // Incrementar veces_usado del cliente
-      await supabase.from('clientes').update({ veces_usado: (cliente?.veces_usado ?? 0) + 1 }).eq('id', form.clienteId);
-
-      showToast('¡Pedido enviado! Buscando cadete...', 'success');
+      const msg = data.sin_cadetes
+        ? `Sin cadetes disponibles. Espera aprox. ${data.espera_minutos} min — el pedido quedó en cola`
+        : '¡Pedido enviado! Buscando cadete...';
+      showToast(msg, data.sin_cadetes ? 'warn' : 'success');
       setForm(prev => ({ ...prev, clienteId: '', direccion: '' }));
       setErrors({});
       setTimeout(() => onSuccess?.(), 1500);
@@ -135,8 +140,8 @@ export default function Pedido({ comercioId, onSuccess }) {
   return (
     <div className="max-w-md mx-auto">
       {toast && (
-        <div role="alert" className={`fixed top-4 right-4 z-50 flex items-center gap-2 px-5 py-3 rounded-xl shadow-lg text-white text-sm font-semibold ${toast.type === 'error' ? 'bg-red-500' : 'bg-green-600'}`}>
-          <span>{toast.type === 'error' ? '✕' : '✓'}</span>{toast.message}
+        <div role="alert" className={`fixed top-4 right-4 z-50 flex items-center gap-2 px-5 py-3 rounded-xl shadow-lg text-white text-sm font-semibold max-w-xs ${toast.type === 'error' ? 'bg-red-500' : toast.type === 'warn' ? 'bg-amber-500' : 'bg-green-600'}`}>
+          <span>{toast.type === 'error' ? '✕' : toast.type === 'warn' ? '⚠️' : '✓'}</span>{toast.message}
         </div>
       )}
 

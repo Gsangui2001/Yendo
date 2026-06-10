@@ -1,6 +1,19 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 
+const API_BASE      = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
+const SURCHARGE     = 500; // recargo para particulares
+
+const ZONAS_FALLBACK = [
+  { value: 'ciudad_colon',      label: 'Ciudad de Colón',   precio: 3000 },
+  { value: 'barrio_ombu',       label: 'Barrio Ombú',       precio: 3500 },
+  { value: 'barrio_artalaz',    label: 'Barrio Artalaz',    precio: 5000 },
+  { value: 'barrio_los_bretes', label: 'Barrio Los Bretes', precio: 6000 },
+  { value: 'san_jose',          label: 'San José',           precio: 8500 },
+  { value: 'el_brillante',      label: 'El Brillante',       precio: 8500 },
+  { value: 'pueblo_liebig',     label: 'Pueblo Liebig',      precio: 8500 },
+];
+
 const METODOS_PAGO = [
   {
     value: 'efectivo',
@@ -18,30 +31,34 @@ const METODOS_PAGO = [
 
 export default function SolicitarCadete({ usuarioId, onPedidoCreado }) {
   const [direccionesGuardadas, setDireccionesGuardadas] = useState([]);
-  const [loading, setLoading]   = useState(false);
-  const [toast, setToast]       = useState(null);
-  const [errors, setErrors]     = useState({});
-  const [form, setForm]         = useState({
-    descripcion:   '',
-    origen:        '',
+  const [zonas,   setZonas]   = useState(ZONAS_FALLBACK);
+  const [loading, setLoading] = useState(false);
+  const [toast,   setToast]   = useState(null);
+  const [errors,  setErrors]  = useState({});
+  const [form, setForm]       = useState({
+    descripcion:    '',
+    origen:         '',
     origenGuardado: '',
-    destino:       '',
+    destino:        '',
     destinoGuardado: '',
-    metodoPago:    '',
+    zona:           '',
+    metodoPago:     '',
   });
 
-  // ── Cargar direcciones guardadas del usuario ───────────────────────────
+  // ── Cargar datos iniciales ─────────────────────────────────────────────
   useEffect(() => {
     async function fetchDirecciones() {
       const { data, error } = await supabase
-        .from('direcciones')
-        .select('id, nombre, direccion')
-        .eq('usuario_id', usuarioId)
-        .order('nombre', { ascending: true });
-
+        .from('direcciones').select('id, nombre, direccion')
+        .eq('usuario_id', usuarioId).order('nombre', { ascending: true });
       if (!error) setDireccionesGuardadas(data ?? []);
     }
+    async function fetchZonas() {
+      const { data } = await supabase.from('zonas').select('*').eq('activo', true).order('orden');
+      if (data?.length) setZonas(data);
+    }
     fetchDirecciones();
+    fetchZonas();
   }, [usuarioId]);
 
   // ── Handlers ───────────────────────────────────────────────────────────
@@ -87,19 +104,20 @@ export default function SolicitarCadete({ usuarioId, onPedidoCreado }) {
     });
   }
 
+  const zonaSeleccionada = zonas.find(z => z.value === form.zona);
+  const precio = zonaSeleccionada ? zonaSeleccionada.precio + SURCHARGE : null;
+
   // ── Validación ─────────────────────────────────────────────────────────
   function validate() {
     const e = {};
-    if (form.descripcion.trim().length < 10)
-      e.descripcion = 'Describí qué necesitás (mínimo 10 caracteres)';
-    if (!form.origen.trim())
-      e.origen = 'Indicá desde dónde';
-    if (!form.destino.trim())
-      e.destino = 'Indicá hacia dónde';
-    if (form.origen.trim() && form.origen.trim() === form.destino.trim())
+    if (form.descripcion.trim().length < 5)
+      e.descripcion = 'Describí qué necesitás';
+    if (!form.origen.trim())  e.origen     = 'Indicá desde dónde';
+    if (!form.destino.trim()) e.destino    = 'Indicá hacia dónde';
+    if (form.origen.trim() === form.destino.trim() && form.origen.trim())
       e.destino = 'El destino debe ser diferente al origen';
-    if (!form.metodoPago)
-      e.metodoPago = 'Elegí un método de pago';
+    if (!form.zona)           e.zona       = 'Seleccioná la zona de destino';
+    if (!form.metodoPago)     e.metodoPago = 'Elegí un método de pago';
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -111,25 +129,28 @@ export default function SolicitarCadete({ usuarioId, onPedidoCreado }) {
 
     setLoading(true);
     try {
-      const res = await fetch('/api/ordenes', {
+      const res = await fetch(`${API_BASE}/api/ordenes`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          usuario_id:   usuarioId,
-          tipo:         'particular',
-          descripcion:  form.descripcion.trim(),
-          origen:       form.origen.trim(),
-          destino:      form.destino.trim(),
-          metodo_pago:  form.metodoPago,
-          estado:       'pendiente',
-          prioridad:    'baja',
+          usuario_id:  usuarioId,
+          descripcion: form.descripcion.trim(),
+          origen:      form.origen.trim(),
+          destino:     form.destino.trim(),
+          zona:        form.zona,
+          zona_label:  zonaSeleccionada?.label,
+          precio:      precio ?? 0,
+          metodo_pago: form.metodoPago,
         }),
       });
 
       if (!res.ok) throw new Error('Error del servidor');
       const data = await res.json();
 
-      showToast('Pedido creado, buscando cadete...', 'success');
+      const msg = data.sin_cadetes
+        ? `Sin cadetes disponibles. Espera aprox. ${data.espera_minutos} min — tu pedido quedó en cola`
+        : 'Pedido creado. Buscando cadete...';
+      showToast(msg, data.sin_cadetes ? 'warn' : 'success');
       onPedidoCreado?.(data.id);
     } catch {
       showToast('No se pudo crear el pedido. Intentá de nuevo.', 'error');
@@ -152,10 +173,10 @@ export default function SolicitarCadete({ usuarioId, onPedidoCreado }) {
         <div
           role="alert"
           className={`fixed top-4 right-4 z-50 flex items-center gap-2 px-5 py-3 rounded-xl
-            shadow-lg text-white text-sm font-semibold transition-all
-            ${toast.type === 'error' ? 'bg-red-500' : 'bg-green-600'}`}
+            shadow-lg text-white text-sm font-semibold transition-all max-w-xs
+            ${toast.type === 'error' ? 'bg-red-500' : toast.type === 'warn' ? 'bg-amber-500' : 'bg-green-600'}`}
         >
-          <span>{toast.type === 'error' ? '✕' : '✓'}</span>
+          <span>{toast.type === 'error' ? '✕' : toast.type === 'warn' ? '⚠️' : '✓'}</span>
           {toast.message}
         </div>
       )}
@@ -243,6 +264,26 @@ export default function SolicitarCadete({ usuarioId, onPedidoCreado }) {
               />
             </Field>
           </div>
+
+          {/* Zona de destino */}
+          <Field label="Zona de destino" required error={errors.zona}>
+            <select
+              value={form.zona}
+              onChange={e => { setForm(prev => ({ ...prev, zona: e.target.value })); clearError('zona'); }}
+              className={inputCls(errors.zona)}
+            >
+              <option value="">Seleccioná la zona...</option>
+              {zonas.map(z => (
+                <option key={z.value} value={z.value}>{z.label} — ${(z.precio + SURCHARGE).toLocaleString('es-AR')}</option>
+              ))}
+            </select>
+            {precio != null && (
+              <p className="text-xs text-gray-500 mt-1.5">
+                💰 Precio del envío: <strong className="text-gray-800">${precio.toLocaleString('es-AR')}</strong>
+                <span className="text-gray-400 ml-1">(incluye recargo particular de ${SURCHARGE.toLocaleString('es-AR')})</span>
+              </p>
+            )}
+          </Field>
 
           {/* Método de pago */}
           <div>

@@ -1,11 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { supabase } from '../../lib/supabaseClient';
+const AdminMap = lazy(() => import('../../features/tracking/AdminMap').then(m => ({ default: m.AdminMap })));
 import { createClient } from '@supabase/supabase-js';
 
 // Cliente secundario para crear usuarios sin afectar la sesión del admin
 const SB_URL = import.meta.env.VITE_SUPABASE_URL || 'https://gzcsvexfnfzwtmlayafb.supabase.co';
 const SB_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd6Y3N2ZXhmbmZ6d3RtbGF5YWZiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5NDI0NDQsImV4cCI6MjA5MzUxODQ0NH0.5-kUMR7PB10kOUzyKM8RvQae1S7NFG81LsKd1Lv7M_k';
 const sbAdmin = createClient(SB_URL, SB_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 
 const ESTADO_CHIP = {
   pendiente: 'bg-amber-100 text-amber-700',
@@ -50,11 +52,19 @@ export default function AdminApp({ perfil, page, setPage }) {
   async function cargarZonas()    { const { data } = await supabase.from('zonas').select('*').order('orden'); setZonas(data ?? []); }
 
   async function cambiarEstadoOrden(id, estado) {
-    await supabase.from('ordenes').update({ estado }).eq('id', id);
+    await fetch(`${API_BASE}/api/admin/ordenes/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ estado }),
+    });
     cargarOrdenes();
   }
   async function cambiarEstadoCadete(id, estado) {
-    await supabase.from('cadetes').update({ estado }).eq('id', id);
+    await fetch(`${API_BASE}/api/admin/cadetes/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ estado }),
+    });
     cargarCadetes();
   }
 
@@ -134,23 +144,12 @@ export default function AdminApp({ perfil, page, setPage }) {
             </div>
           </div>
 
-          {/* Mapa placeholder */}
+          {/* Mapa en tiempo real */}
           <div className="bg-white rounded-2xl border border-gray-100 p-5">
             <h3 className="font-bold text-gray-900 mb-4">Mapa en tiempo real</h3>
-            <div className="relative rounded-xl overflow-hidden h-64 bg-gradient-to-br from-green-50 to-blue-50 border border-gray-100">
-              <div className="absolute inset-0" style={{backgroundImage:'linear-gradient(rgba(0,0,0,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,0,0,0.03) 1px,transparent 1px)',backgroundSize:'24px 24px'}}/>
-              {cadetes.slice(0,6).map((c,i) => (
-                <div key={c.id} className="absolute" style={{left:`${15+i*14}%`,top:`${20+(i%3)*25}%`}}>
-                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-white text-xs shadow-lg ${c.estado==='disponible'?'bg-green-500':c.estado==='en_viaje'?'bg-blue-500':'bg-gray-400'}`}>🚴</div>
-                </div>
-              ))}
-              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white shadow-lg flex items-center justify-center">🏪</div>
-            </div>
-            <div className="flex items-center justify-around mt-3 text-xs">
-              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-green-500"/>Disponible</span>
-              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-blue-500"/>En ruta</span>
-              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-gray-400"/>Offline</span>
-            </div>
+            <Suspense fallback={<div className="h-64 flex items-center justify-center text-gray-400 text-sm">Cargando mapa...</div>}>
+              <AdminMap cadetes={cadetes} ordenes={ordenes} />
+            </Suspense>
           </div>
         </div>
 
