@@ -6,8 +6,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { Spinner } from '../../components/ui/Spinner';
-
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
+import { apiFetch } from '../../lib/api';
 
 function fmt(n) { return `$${Number(n ?? 0).toLocaleString('es-AR')}`; }
 function fmtFecha(ts) {
@@ -67,8 +66,8 @@ export default function CadeteApp({ perfil, page }) {
     setAccion(true);
     const nuevoEstado = cadete.estado === 'disponible' ? 'offline' : 'disponible';
     try {
-      const res = await fetch(`${API_BASE}/api/cadetes/${perfil.id}/estado`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      const res = await apiFetch(`/api/cadetes/${perfil.id}/estado`, {
+        method: 'PATCH',
         body: JSON.stringify({ estado: nuevoEstado }),
       });
       const data = await res.json();
@@ -81,8 +80,8 @@ export default function CadeteApp({ perfil, page }) {
     if (!ordenActiva || accion) return;
     setAccion(true);
     try {
-      const res = await fetch(`${API_BASE}/api/ordenes/${ordenActiva.id}/en_camino`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      const res = await apiFetch(`/api/ordenes/${ordenActiva.id}/en_camino`, {
+        method: 'PATCH',
         body: JSON.stringify({ cadete_id: perfil.id }),
       });
       if (res.ok) setOrdenActiva(await res.json());
@@ -95,8 +94,8 @@ export default function CadeteApp({ perfil, page }) {
     if (!window.confirm('¿Confirmar entrega del pedido?')) return;
     setAccion(true);
     try {
-      const res = await fetch(`${API_BASE}/api/ordenes/${ordenActiva.id}/entregar`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      const res = await apiFetch(`/api/ordenes/${ordenActiva.id}/entregar`, {
+        method: 'PATCH',
         body: JSON.stringify({ cadete_id: perfil.id }),
       });
       if (res.ok) {

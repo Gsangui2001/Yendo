@@ -2,12 +2,12 @@ import { useState, useEffect, lazy, Suspense } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 const AdminMap = lazy(() => import('../../features/tracking/AdminMap').then(m => ({ default: m.AdminMap })));
 import { createClient } from '@supabase/supabase-js';
+import { apiFetch } from '../../lib/api';
 
 // Cliente secundario para crear usuarios sin afectar la sesión del admin
 const SB_URL = import.meta.env.VITE_SUPABASE_URL || 'https://gzcsvexfnfzwtmlayafb.supabase.co';
 const SB_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd6Y3N2ZXhmbmZ6d3RtbGF5YWZiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5NDI0NDQsImV4cCI6MjA5MzUxODQ0NH0.5-kUMR7PB10kOUzyKM8RvQae1S7NFG81LsKd1Lv7M_k';
 const sbAdmin = createClient(SB_URL, SB_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 
 const ESTADO_CHIP = {
   pendiente: 'bg-amber-100 text-amber-700',
@@ -52,17 +52,15 @@ export default function AdminApp({ perfil, page, setPage }) {
   async function cargarZonas()    { const { data } = await supabase.from('zonas').select('*').order('orden'); setZonas(data ?? []); }
 
   async function cambiarEstadoOrden(id, estado) {
-    await fetch(`${API_BASE}/api/admin/ordenes/${id}`, {
+    await apiFetch(`/api/admin/ordenes/${id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ estado }),
     });
     cargarOrdenes();
   }
   async function cambiarEstadoCadete(id, estado) {
-    await fetch(`${API_BASE}/api/admin/cadetes/${id}`, {
+    await apiFetch(`/api/admin/cadetes/${id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ estado }),
     });
     cargarCadetes();

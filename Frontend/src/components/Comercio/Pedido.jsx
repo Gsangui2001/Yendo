@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabaseClient';
-
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
+import { apiFetch } from '../../lib/api';
 
 const LAST_ZONA_KEY = 'yendo_ultima_zona';
 
@@ -102,9 +101,8 @@ export default function Pedido({ comercioId, onSuccess }) {
       const precio = zonaData?.precio ?? 0;
       const cliente = clientes.find(c => c.id === form.clienteId);
       // Pasar por el backend para disparar el motor de asignación automática
-      const res = await fetch(`${API_BASE}/api/ordenes`, {
+      const res = await apiFetch('/api/ordenes', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
           comercio_id:    comercioId,
           cliente_id:     form.clienteId,

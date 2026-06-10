@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
+import { apiFetch } from '../../lib/api';
 
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 const THROTTLE_MS = 5000; // actualizar GPS cada 5 segundos máximo
 
 /**
@@ -27,9 +27,8 @@ export function useGeolocation(cadeteId, activo) {
       if (now - lastSentRef.current < THROTTLE_MS) return;
       lastSentRef.current = now;
 
-      fetch(`${API_BASE}/api/cadetes/${cadeteId}/ubicacion`, {
+      apiFetch(`/api/cadetes/${cadeteId}/ubicacion`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ lat: coords.latitude, lng: coords.longitude }),
       }).catch(() => {}); // fallo silencioso — no interrumpir la app
     }

@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import { supabase } from '../lib/supabaseAdmin.js';
+import { authenticate, requireRole } from '../middleware/auth.js';
 
 const router = Router();
+router.use(authenticate, requireRole('admin'));
 
 const ESTADOS_ORDEN   = ['pendiente', 'asignada', 'en_camino', 'entregada', 'cancelada'];
 const ESTADOS_CADETE  = ['disponible', 'en_viaje', 'offline'];

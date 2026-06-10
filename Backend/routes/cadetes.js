@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import { supabase } from '../lib/supabaseAdmin.js';
+import { authenticate, isAdmin, requireRole } from '../middleware/auth.js';
 
 const router = Router();
+router.use(authenticate);
 
 // ── GET /api/cadetes/disponibles?zona=ciudad_colon ───────────────────────
 router.get('/disponibles', async (req, res) => {
@@ -31,6 +33,10 @@ router.get('/disponibles', async (req, res) => {
 router.put('/:id/ubicacion', async (req, res) => {
   const { id }        = req.params;
   const { lat, lng }  = req.body;
+
+  if (!isAdmin(req) && (req.perfil?.rol !== 'cadete' || req.user.id !== id)) {
+    return res.status(403).json({ error: 'No podes actualizar la ubicacion de otro cadete' });
+  }
 
   if (lat == null || lng == null) {
     return res.status(400).json({ error: 'lat y lng son requeridos' });
@@ -66,9 +72,13 @@ router.put('/:id/ubicacion', async (req, res) => {
 
 // ── PATCH /api/cadetes/:id/estado ─────────────────────────────────────────
 // Toggle disponible/offline (el cadete abre/cierra su jornada)
-router.patch('/:id/estado', async (req, res) => {
+router.patch('/:id/estado', requireRole('cadete', 'admin'), async (req, res) => {
   const { id }     = req.params;
   const { estado } = req.body;
+
+  if (!isAdmin(req) && req.user.id !== id) {
+    return res.status(403).json({ error: 'No podes cambiar el estado de otro cadete' });
+  }
 
   const ESTADOS_VALIDOS = ['disponible', 'offline'];
   if (!ESTADOS_VALIDOS.includes(estado)) {

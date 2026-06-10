@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../../lib/supabaseClient.js';
+import { apiFetch } from '../../lib/api.js';
 
-const API_BASE    = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 const TIMER_SEG   = 120; // 2 minutos
 
 function tocarAlarma() {
@@ -143,9 +143,8 @@ export function AssignmentModal({ cadete, onAceptar }) {
     const target = orden ?? pedidoRef.current;
     if (!target) return;
     limpiar();
-    await fetch(`${API_BASE}/api/ordenes/${target.id}/rechazar`, {
+    await apiFetch(`/api/ordenes/${target.id}/rechazar`, {
       method:  'PATCH',
-      headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ cadete_id: cadete.id }),
     }).catch(() => {});
   }
@@ -155,9 +154,8 @@ export function AssignmentModal({ cadete, onAceptar }) {
     setCargando(true);
     setError('');
     try {
-      const res = await fetch(`${API_BASE}/api/ordenes/${pedido.id}/aceptar`, {
+      const res = await apiFetch(`/api/ordenes/${pedido.id}/aceptar`, {
         method:  'PATCH',
-        headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ cadete_id: cadete.id }),
       });
       const data = await res.json();

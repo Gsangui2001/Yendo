@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabaseClient';
+import { apiFetch } from '../../lib/api';
 
-const API_BASE      = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 const SURCHARGE     = 500; // recargo para particulares
 
 const ZONAS_FALLBACK = [
@@ -129,9 +129,8 @@ export default function SolicitarCadete({ usuarioId, onPedidoCreado }) {
 
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/ordenes`, {
+      const res = await apiFetch('/api/ordenes', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           usuario_id:  usuarioId,
           descripcion: form.descripcion.trim(),

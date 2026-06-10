@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import { supabase } from '../lib/supabaseAdmin.js';
 import { encontrarCadete, estimarEspera } from '../lib/matching.js';
+import { authenticate, isAdmin, requireRole } from '../middleware/auth.js';
 
 const router = Router();
+router.use(authenticate);
 
 // ── POST /api/ordenes ──────────────────────────────────────────────────────
 // Crea un pedido y dispara el motor de asignación automática.
@@ -39,6 +41,25 @@ router.post('/', async (req, res) => {
 
   if (errores.length > 0) {
     return res.status(400).json({ errores });
+  }
+
+  if (esParticular && !isAdmin(req) && body.usuario_id !== req.user.id) {
+    return res.status(403).json({ error: 'No podes crear pedidos para otro usuario' });
+  }
+
+  if (esComercio && !isAdmin(req)) {
+    if (req.perfil?.rol !== 'comercio') {
+      return res.status(403).json({ error: 'Solo comercios pueden crear pedidos comerciales' });
+    }
+    const { data: comercio, error: comercioError } = await supabase
+      .from('comercios')
+      .select('id, owner_id, activo')
+      .eq('id', body.comercio_id)
+      .single();
+
+    if (comercioError || !comercio || comercio.owner_id !== req.user.id || !comercio.activo) {
+      return res.status(403).json({ error: 'Comercio no habilitado para crear este pedido' });
+    }
   }
 
   const ordenData = {
@@ -150,12 +171,16 @@ router.get('/', async (req, res) => {
 
 // ── PATCH /api/ordenes/:id/aceptar ────────────────────────────────────────
 // Cadete acepta: debe ser el asignado directamente O un broadcast abierto
-router.patch('/:id/aceptar', async (req, res) => {
+router.patch('/:id/aceptar', requireRole('cadete', 'admin'), async (req, res) => {
   const { id }        = req.params;
   const { cadete_id } = req.body;
 
   if (!cadete_id) {
     return res.status(400).json({ error: 'cadete_id es requerido' });
+  }
+
+  if (!isAdmin(req) && cadete_id !== req.user.id) {
+    return res.status(403).json({ error: 'No podes aceptar pedidos por otro cadete' });
   }
 
   const { data: orden, error: errorBuscar } = await supabase
@@ -226,12 +251,16 @@ router.patch('/:id/aceptar', async (req, res) => {
 
 // ── PATCH /api/ordenes/:id/rechazar ────────────────────────────────────────
 // Cadete rechaza. Se busca el siguiente cadete disponible o se pasa a broadcast.
-router.patch('/:id/rechazar', async (req, res) => {
+router.patch('/:id/rechazar', requireRole('cadete', 'admin'), async (req, res) => {
   const { id }        = req.params;
   const { cadete_id } = req.body;
 
   if (!cadete_id) {
     return res.status(400).json({ error: 'cadete_id es requerido' });
+  }
+
+  if (!isAdmin(req) && cadete_id !== req.user.id) {
+    return res.status(403).json({ error: 'No podes rechazar pedidos por otro cadete' });
   }
 
   const { data: orden, error: errorBuscar } = await supabase
@@ -284,12 +313,16 @@ router.patch('/:id/rechazar', async (req, res) => {
 });
 
 // ── PATCH /api/ordenes/:id/en_camino ─────────────────────────────────────
-router.patch('/:id/en_camino', async (req, res) => {
+router.patch('/:id/en_camino', requireRole('cadete', 'admin'), async (req, res) => {
   const { id }        = req.params;
   const { cadete_id } = req.body;
 
   if (!cadete_id) {
     return res.status(400).json({ error: 'cadete_id es requerido' });
+  }
+
+  if (!isAdmin(req) && cadete_id !== req.user.id) {
+    return res.status(403).json({ error: 'No podes actualizar pedidos de otro cadete' });
   }
 
   const { data: orden, error: errorBuscar } = await supabase
@@ -319,12 +352,16 @@ router.patch('/:id/en_camino', async (req, res) => {
 
 // ── PATCH /api/ordenes/:id/entregar ──────────────────────────────────────
 // Entrega completada: calcula split 82/18 y actualiza ganancias del cadete
-router.patch('/:id/entregar', async (req, res) => {
+router.patch('/:id/entregar', requireRole('cadete', 'admin'), async (req, res) => {
   const { id }        = req.params;
   const { cadete_id } = req.body;
 
   if (!cadete_id) {
     return res.status(400).json({ error: 'cadete_id es requerido' });
+  }
+
+  if (!isAdmin(req) && cadete_id !== req.user.id) {
+    return res.status(403).json({ error: 'No podes entregar pedidos de otro cadete' });
   }
 
   const { data: orden, error: errorBuscar } = await supabase
