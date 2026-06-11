@@ -14,6 +14,13 @@ const ZONES = [
 
 let activeZones = [...ZONES];
 
+// Modelo de cobro a comercios (abono por día / mes / año).
+const PLAN_PRICES = { dia: 4000, mes: 90000, ano: 1300000 };
+const PLAN_DEFAULT = "mes";
+const PLAN_LABELS = { dia: "Día", mes: "Mes", ano: "Año" };
+// Comisión de Yendo sobre cada envío realizado por un cadete.
+const YENDO_FEE = 0.18;
+
 const STATUS_LABELS = {
   available: "Disponible",
   accepted: "Aceptado",
@@ -86,7 +93,9 @@ const state = {
   currentBusiness: null,
   realtimeChannel: null,
   orders: loadOrders(),
-  activity: loadActivity()
+  activity: loadActivity(),
+  allBusinesses: [],
+  allCouriers: []
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -176,6 +185,24 @@ async function loadRemoteContext() {
 
   await loadRemoteZones();
   await loadRemoteOrders();
+  await loadAdminDirectory();
+}
+
+// Solo admin: trae todos los comercios y cadetes para el panel de control.
+// Es solo lectura y no afecta el flujo de pedidos/login.
+async function loadAdminDirectory() {
+  if (!state.supabase || state.role !== "admin") return;
+  try {
+    const [{ data: businesses }, { data: couriers }] = await Promise.all([
+      state.supabase.from("businesses").select("id,name,is_active"),
+      state.supabase.from("couriers").select("id,is_available,is_active,profiles(full_name)")
+    ]);
+    state.allBusinesses = Array.isArray(businesses) ? businesses : [];
+    state.allCouriers = Array.isArray(couriers) ? couriers : [];
+  } catch {
+    state.allBusinesses = [];
+    state.allCouriers = [];
+  }
 }
 
 async function loadRemoteZones() {
@@ -506,6 +533,8 @@ function render() {
   renderAdminOrders();
   renderAdminInsights();
   renderAdminQueues();
+  renderAdminFinance();
+  renderAdminCourierStats();
   renderCourierAvailability();
 }
 
@@ -782,6 +811,106 @@ function renderAdminQueues() {
       <small>${escapeHtml(queue.help)}</small>
     </article>
   `).join("");
+}
+
+function renderAdminFinance() {
+  const grid = $("#adminFinance");
+  if (!grid) return;
+
+  const orders = state.orders;
+  const delivered = orders.filter((order) => order.status === "delivered");
+  const notCancelled = orders.filter((order) => order.status !== "cancelled");
+
+  const facturacion = sumPrices(delivered);
+  const comision = Math.round(facturacion * YENDO_FEE);
+  const aPagarCadetes = Math.max(facturacion - comision, 0);
+
+  const abonos = state.allBusinesses.reduce(
+    (sum, business) => sum + (PLAN_PRICES[business.plan_cobro] || PLAN_PRICES[PLAN_DEFAULT]),
+    0
+  );
+  const pendiente = abonos; // sin pagos registrados todavía
+  const cobrado = 0;
+
+  const ingresoEstimado = abonos + comision;
+  const cierrePct = orders.length ? Math.round((delivered.length / orders.length) * 100) : 0;
+  const yendoPct = Math.round(YENDO_FEE * 100);
+  const courierPct = 100 - yendoPct;
+  const cerradosTxt = `${delivered.length} pedido${delivered.length === 1 ? "" : "s"} cerrado${delivered.length === 1 ? "" : "s"}`;
+
+  const card = (variant, label, value, hint) => `
+    <article class="finance-card ${variant}">
+      <span>${escapeHtml(label)}</span>
+      <strong>${money(value)}</strong>
+      <small>${escapeHtml(hint)}</small>
+    </article>
+  `;
+
+  grid.innerHTML = `
+    <article class="finance-card finance-overview">
+      <div>
+        <span>Resumen financiero</span>
+        <strong>${money(ingresoEstimado)}</strong>
+        <small>Ingreso estimado Yendo</small>
+      </div>
+      <div class="finance-bar" aria-label="Distribución del envío">
+        <span class="finance-yendo" style="width: ${yendoPct}%;">${yendoPct}%</span>
+        <span class="finance-courier" style="width: ${courierPct}%;">${courierPct}%</span>
+      </div>
+      <p>Yendo cobra ${yendoPct}% solo sobre envíos realizados por cadetes. Los comercios pagan abono por día, mes o año.</p>
+      <small>${cierrePct}% de cierre sobre pedidos cargados · ${money(sumPrices(notCancelled))} en envíos no cancelados</small>
+    </article>
+    ${card("green", "Abonos comercios", abonos, "Cargos por día, mes o año")}
+    ${card("red", "Pendiente comercios", pendiente, "Deuda de abonos comerciales")}
+    ${card("primary", "Cobrado comercios", cobrado, "Abonos marcados como pagados")}
+    ${card("dark", "Facturación envíos", facturacion, cerradosTxt)}
+    ${card("violet", "Comisión envíos", comision, `${yendoPct}% solo sobre envíos de cadetes`)}
+    ${card("neutral", "A pagar cadetes", aPagarCadetes, `${courierPct}% para los cadetes`)}
+  `;
+}
+
+function renderAdminCourierStats() {
+  const panel = $("#adminCourierStats");
+  setText("#adminCourierCount", state.allCouriers.length);
+  if (!panel) return;
+
+  const couriers = state.allCouriers;
+  if (!couriers.length) {
+    panel.innerHTML = `<div class="empty-state">Todavía no hay cadetes cargados.</div>`;
+    return;
+  }
+
+  panel.innerHTML = couriers.map((courier) => {
+    const name = courier.profiles?.full_name || "Cadete";
+    const mine = state.orders.filter((order) => order.courierId && order.courierId === courier.id);
+    const activos = mine.filter(isActiveOrder).length;
+    const entregados = mine.filter((order) => order.status === "delivered");
+    const facturado = sumPrices(entregados);
+    const comision = Math.round(facturado * YENDO_FEE);
+    const gana = Math.max(facturado - comision, 0);
+    const estado = courier.is_available ? "Disponible" : "Libre";
+    const badge = courier.is_available ? "online" : "";
+
+    return `
+      <article class="performance-card">
+        <div class="performance-card-head">
+          <strong>${escapeHtml(name)}</strong>
+          <span class="${badge}">${escapeHtml(estado)}</span>
+        </div>
+        <div class="performance-facts">
+          <span><small>Pedidos</small><strong>${mine.length}</strong></span>
+          <span><small>Activos</small><strong>${activos}</strong></span>
+          <span><small>Entregados</small><strong>${entregados.length}</strong></span>
+          <span><small>Rating</small><strong>4.7</strong></span>
+        </div>
+        <div class="performance-money">
+          <span><small>Facturado</small><strong>${money(facturado)}</strong></span>
+          <span><small>Comisión</small><strong>${money(comision)}</strong></span>
+          <span><small>Gana cadete</small><strong>${money(gana)}</strong></span>
+        </div>
+      </article>
+    `;
+  }).join("");
 }
 
 async function seedOrders() {
