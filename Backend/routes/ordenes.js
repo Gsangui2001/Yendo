@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { supabase } from '../lib/supabaseAdmin.js';
 import { encontrarCadete, estimarEspera } from '../lib/matching.js';
 import { authenticate, isAdmin, requireRole } from '../middleware/auth.js';
+import { calcularPrecio, FEE_YENDO } from '../lib/pricing.js';
+import { leerConfigServicio } from './precios.js';
 
 const router = Router();
 router.use(authenticate);
@@ -22,11 +24,14 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: 'Falta comercio_id o usuario_id' });
   }
 
+  // Precio: por km (distancia_km) o legacy por zona (precio). Uno de los dos.
+  const tieneDistancia = Number.isFinite(Number(body.distancia_km)) && Number(body.distancia_km) > 0;
+
   if (esComercio) {
     if (!body.cliente_id)  errores.push('cliente_id es requerido');
     if (!body.direccion)   errores.push('direccion es requerida');
     if (!body.zona)        errores.push('zona es requerida');
-    if (!body.precio)      errores.push('precio es requerido');
+    if (!tieneDistancia && !body.precio) errores.push('distancia_km o precio es requerido');
   }
 
   if (esParticular) {
@@ -35,9 +40,13 @@ router.post('/', async (req, res) => {
     if (!body.origen)      errores.push('origen es requerido');
     if (!body.destino)     errores.push('destino es requerido');
     if (!body.zona)        errores.push('zona es requerida');
-    if (!body.precio)      errores.push('precio es requerido');
+    if (!tieneDistancia && !body.precio) errores.push('distancia_km o precio es requerido');
     if (!body.metodo_pago) errores.push('metodo_pago es requerido');
   }
+
+  if (tieneDistancia && Number(body.distancia_km) > 100) errores.push('distancia_km inválida');
+  if (body.propina_cadete != null && (Number(body.propina_cadete) < 0 || Number(body.propina_cadete) > 50000))
+    errores.push('propina_cadete inválida');
 
   if (errores.length > 0) {
     return res.status(400).json({ errores });
@@ -72,6 +81,45 @@ router.post('/', async (req, res) => {
     }
   }
 
+  // ── Cálculo financiero EN BACKEND (no se confía en montos del frontend) ──
+  const config     = await leerConfigServicio();
+  const metodoPago = body.metodo_pago || 'efectivo';
+  const propina    = Math.max(0, Number(body.propina_cadete) || 0);
+  const r2 = (n) => Math.round(n * 100) / 100;
+
+  let desglose;
+  if (tieneDistancia) {
+    desglose = calcularPrecio({
+      tipo: esComercio ? 'comercio' : 'particular',
+      distancia_km: Number(body.distancia_km),
+      propina_cadete: propina,
+      metodo_pago: metodoPago,
+      config,
+    });
+  } else {
+    // Legacy por zona: el precio viene del front, pero el reparto, la propina,
+    // el recargo y la liquidación se calculan igual acá.
+    const recargoActivo = Boolean(config.recargo_feriado_activo) || Boolean(config.recargo_lluvia_activo);
+    const recargo       = recargoActivo ? Number(config.recargo_monto ?? 500) : 0;
+    const precioEnvio   = r2(Number(body.precio) + recargo);
+    const gananciaYendo = r2(precioEnvio * FEE_YENDO);
+    const gananciaCad   = r2(precioEnvio - gananciaYendo);
+    const totalCadete   = r2(gananciaCad + propina);
+    const esEfectivo    = ['efectivo', 'paga_cliente'].includes(String(metodoPago).toLowerCase());
+    desglose = {
+      distancia_km: null, precio_base: null, km_incluidos: null, precio_km_extra: null,
+      recargo_clima_feriado: recargo,
+      propina_cadete: r2(propina),
+      precio_envio: precioEnvio,
+      total_cliente: r2(precioEnvio + propina),
+      ganancia_yendo: gananciaYendo,
+      ganancia_cadete: gananciaCad,
+      total_cadete: totalCadete,
+      efectivo_a_rendir:        esEfectivo ? gananciaYendo : 0,
+      monto_a_depositar_cadete: esEfectivo ? 0 : totalCadete,
+    };
+  }
+
   const ordenData = {
     estado:    'pendiente',
     prioridad: esComercio ? 'alta' : 'baja',
@@ -85,14 +133,30 @@ router.post('/', async (req, res) => {
     direccion:      body.direccion      ?? body.destino ?? null,
     zona:           body.zona           ?? null,
     zona_label:     body.zona_label     ?? null,
-    precio:         body.precio         ?? null,
 
     // Particular
     solicitante_id: body.usuario_id ?? null,
     descripcion:    body.descripcion ?? null,
     origen:         body.origen      ?? null,
     destino:        body.destino     ?? null,
-    metodo_pago:    body.metodo_pago ?? null,
+    metodo_pago:    metodoPago,
+
+    // Desglose financiero (fuente de verdad: lib/pricing.js)
+    precio:                   desglose.precio_envio, // compat con listados existentes
+    distancia_km:             desglose.distancia_km,
+    precio_base:              desglose.precio_base,
+    km_incluidos:             desglose.km_incluidos,
+    precio_km_extra:          desglose.precio_km_extra,
+    recargo_clima_feriado:    desglose.recargo_clima_feriado,
+    propina_cadete:           desglose.propina_cadete,
+    precio_envio:             desglose.precio_envio,
+    total_cliente:            desglose.total_cliente,
+    ganancia_yendo:           desglose.ganancia_yendo,
+    ganancia_cadete:          desglose.ganancia_cadete,
+    total_cadete:             desglose.total_cadete,
+    efectivo_a_rendir:        desglose.efectivo_a_rendir,
+    monto_a_depositar_cadete: desglose.monto_a_depositar_cadete,
+    precio_calculado_en:      new Date().toISOString(),
 
     // GPS origen (opcional, mejora el matching)
     origen_lat: body.origen_lat ?? null,
@@ -101,11 +165,28 @@ router.post('/', async (req, res) => {
     rechazos: [],
   };
 
-  const { data: orden, error: errorInsert } = await supabase
+  let { data: orden, error: errorInsert } = await supabase
     .from('ordenes')
     .insert(ordenData)
     .select()
     .single();
+
+  // Migración 004 sin aplicar: reintentar sin las columnas financieras nuevas
+  if (errorInsert && /Could not find|does not exist/i.test(errorInsert.message)) {
+    console.warn('[POST /api/ordenes] columnas 004 ausentes, insert básico:', errorInsert.message);
+    const camposNuevos = [
+      'distancia_km', 'precio_base', 'km_incluidos', 'precio_km_extra',
+      'recargo_clima_feriado', 'propina_cadete', 'precio_envio', 'total_cliente',
+      'total_cadete', 'efectivo_a_rendir', 'monto_a_depositar_cadete', 'precio_calculado_en',
+    ];
+    const base = { ...ordenData };
+    camposNuevos.forEach((c) => delete base[c]);
+    ({ data: orden, error: errorInsert } = await supabase
+      .from('ordenes')
+      .insert(base)
+      .select()
+      .single());
+  }
 
   if (errorInsert) {
     console.error('[POST /api/ordenes] insert:', errorInsert.message);
@@ -413,7 +494,7 @@ router.patch('/:id/entregar', requireRole('cadete', 'admin'), async (req, res) =
 
   const { data: orden, error: errorBuscar } = await supabase
     .from('ordenes')
-    .select('id, estado, cadete_id, precio, cliente_id')
+    .select('id, estado, cadete_id, precio, cliente_id, ganancia_cadete, ganancia_yendo, propina_cadete, total_cadete')
     .eq('id', id)
     .single();
 
@@ -423,52 +504,65 @@ router.patch('/:id/entregar', requireRole('cadete', 'admin'), async (req, res) =
     return res.status(409).json({ error: `Estado inválido: ${orden.estado}` });
   }
 
+  // Usar los montos calculados al crear el pedido; si es una orden vieja sin
+  // desglose, calcular el split clásico sobre el precio.
   const precio         = Number(orden.precio ?? 0);
-  const gananciaCadete = Math.round(precio * 0.82 * 100) / 100;
-  const gananciaYendo  = Math.round(precio * 0.18 * 100) / 100;
+  const gananciaCadete = Number(orden.ganancia_cadete ?? Math.round(precio * 0.82 * 100) / 100);
+  const gananciaYendo  = Number(orden.ganancia_yendo  ?? Math.round(precio * 0.18 * 100) / 100);
+  const propina        = Number(orden.propina_cadete ?? 0);
+  // Lo que suma a las ganancias del cadete incluye la propina (es 100% suya)
+  const totalCadete    = Number(orden.total_cadete ?? (gananciaCadete + propina));
   const ahora          = new Date().toISOString();
 
-  const { data: cadete } = await supabase
-    .from('cadetes')
-    .select('ganancias_hoy, ganancias_semana, ganancias_mes, viajes_hoy, viajes_semana, viajes_mes')
-    .eq('id', cadete_id)
+  const resOrden = await supabase
+    .from('ordenes')
+    .update({
+      estado:          'entregada',
+      entregada_en:    ahora,
+      ganancia_cadete: gananciaCadete,
+      ganancia_yendo:  gananciaYendo,
+    })
+    .eq('id', id)
+    .select()
     .single();
-
-  const [resOrden, resCadete] = await Promise.all([
-    supabase
-      .from('ordenes')
-      .update({
-        estado:          'entregada',
-        entregada_en:    ahora,
-        ganancia_cadete: gananciaCadete,
-        ganancia_yendo:  gananciaYendo,
-      })
-      .eq('id', id)
-      .select()
-      .single(),
-
-    supabase
-      .from('cadetes')
-      .update({
-        estado:              'disponible',
-        ultima_entrega_en:   ahora,
-        ganancias_hoy:    (cadete?.ganancias_hoy    ?? 0) + gananciaCadete,
-        ganancias_semana: (cadete?.ganancias_semana ?? 0) + gananciaCadete,
-        ganancias_mes:    (cadete?.ganancias_mes    ?? 0) + gananciaCadete,
-        viajes_hoy:       (cadete?.viajes_hoy       ?? 0) + 1,
-        viajes_semana:    (cadete?.viajes_semana    ?? 0) + 1,
-        viajes_mes:       (cadete?.viajes_mes       ?? 0) + 1,
-      })
-      .eq('id', cadete_id),
-  ]);
 
   if (resOrden.error) {
     console.error('[PATCH /entregar] orden:', resOrden.error.message);
     return res.status(500).json({ error: 'No se pudo actualizar la orden' });
   }
 
-  if (resCadete.error) {
-    console.error('[PATCH /entregar] cadete:', resCadete.error.message);
+  // Stats del cadete: incremento atómico vía función SQL (migración 003).
+  // Si la función todavía no existe en la DB, fallback al camino anterior.
+  const { error: rpcError } = await supabase.rpc('incrementar_stats_entrega', {
+    p_cadete_id: cadete_id,
+    p_ganancia:  totalCadete,
+  });
+
+  if (rpcError) {
+    console.warn('[PATCH /entregar] rpc no disponible, fallback:', rpcError.message);
+    const { data: cadete } = await supabase
+      .from('cadetes')
+      .select('ganancias_hoy, ganancias_semana, ganancias_mes, viajes_hoy, viajes_semana, viajes_mes')
+      .eq('id', cadete_id)
+      .single();
+
+    const { error: fallbackError } = await supabase
+      .from('cadetes')
+      .update({
+        estado:              'disponible',
+        ultima_entrega_en:   ahora,
+        ganancias_hoy:    (cadete?.ganancias_hoy    ?? 0) + totalCadete,
+        ganancias_semana: (cadete?.ganancias_semana ?? 0) + totalCadete,
+        ganancias_mes:    (cadete?.ganancias_mes    ?? 0) + totalCadete,
+        viajes_hoy:       (cadete?.viajes_hoy       ?? 0) + 1,
+        viajes_semana:    (cadete?.viajes_semana    ?? 0) + 1,
+        viajes_mes:       (cadete?.viajes_mes       ?? 0) + 1,
+      })
+      .eq('id', cadete_id);
+
+    if (fallbackError) {
+      console.error('[PATCH /entregar] cadete:', fallbackError.message);
+    }
   }
 
   if (orden.cliente_id) {

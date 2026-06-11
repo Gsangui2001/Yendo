@@ -16,6 +16,26 @@ function fmtFecha(ts) {
   if (!ts) return '';
   return new Date(ts).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
 }
+function fmtFechaDia(ts) {
+  if (!ts) return '';
+  return new Date(ts).toLocaleDateString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+// Desglose financiero de una orden, con fallback para pedidos viejos que no
+// tienen los campos de la migración 004 (calcula el split clásico 82/18).
+function finanzasDe(o) {
+  const envio    = Number(o.precio_envio ?? o.precio ?? 0);
+  const gYendo   = Number(o.ganancia_yendo  ?? Math.round(envio * 0.18 * 100) / 100);
+  const gCadete  = Number(o.ganancia_cadete ?? envio - gYendo);
+  const propina  = Number(o.propina_cadete ?? 0);
+  const total    = Number(o.total_cadete ?? gCadete + propina);
+  const efectivo = ['efectivo', 'paga_cliente'].includes(String(o.metodo_pago ?? 'efectivo').toLowerCase());
+  return {
+    envio, gYendo, gCadete, propina, total, efectivo,
+    rendir:    Number(o.efectivo_a_rendir        ?? (efectivo ? gYendo : 0)),
+    depositar: Number(o.monto_a_depositar_cadete ?? (efectivo ? 0 : total)),
+  };
+}
 
 export default function CadeteApp({ perfil, page }) {
   const toast = useToast();
@@ -312,6 +332,8 @@ function PedidoEnCurso({ orden, accion, onEnCamino, onEntregar }) {
 function GananciasView({ cadete, ordenes }) {
   const [tab, setTab] = useState('hoy');
   const hoy = new Date().toISOString().slice(0, 10);
+  const hace7  = new Date(Date.now() - 7  * 86400_000).toISOString();
+  const hace30 = new Date(Date.now() - 30 * 86400_000).toISOString();
 
   const periodos = {
     hoy:    { label: 'Hoy',     ganancia: cadete?.ganancias_hoy,    viajes: cadete?.viajes_hoy },
@@ -319,8 +341,23 @@ function GananciasView({ cadete, ordenes }) {
     mes:    { label: 'Mes',     ganancia: cadete?.ganancias_mes,    viajes: cadete?.viajes_mes },
   };
 
-  const entregadas = ordenes.filter((o) => o.estado === 'entregada' && (tab === 'hoy' ? o.creado_en?.startsWith(hoy) : true));
+  const enPeriodo = (o) => {
+    const f = o.entregada_en ?? o.creado_en ?? '';
+    if (tab === 'hoy')    return f.startsWith(hoy);
+    if (tab === 'semana') return f >= hace7;
+    return f >= hace30;
+  };
+  const entregadas = ordenes.filter((o) => o.estado === 'entregada' && enPeriodo(o));
   const p = periodos[tab];
+
+  // Liquidación del período: propinas, efectivo a rendir y a depositar
+  const liq = entregadas.reduce((acc, o) => {
+    const f = finanzasDe(o);
+    acc.propinas  += f.propina;
+    acc.rendir    += f.rendir;
+    acc.depositar += f.depositar;
+    return acc;
+  }, { propinas: 0, rendir: 0, depositar: 0 });
 
   return (
     <div className="space-y-4 animate-fade-in max-w-lg mx-auto">
@@ -343,11 +380,27 @@ function GananciasView({ cadete, ordenes }) {
       <div className="grid grid-cols-2 gap-3">
         <Card className="text-center py-4">
           <p className="text-2xl font-extrabold text-green-600">${Number(p.ganancia ?? 0).toLocaleString('es-AR')}</p>
-          <p className="text-xs text-gray-500 mt-1">Ganancia neta (82%)</p>
+          <p className="text-xs text-gray-500 mt-1">Tu ganancia (82% + propinas)</p>
         </Card>
         <Card className="text-center py-4">
           <p className="text-2xl font-extrabold text-gray-900">{p.viajes ?? 0}</p>
           <p className="text-xs text-gray-500 mt-1">Viajes</p>
+        </Card>
+      </div>
+
+      {/* Liquidación */}
+      <div className="grid grid-cols-3 gap-3">
+        <Card className="text-center py-3">
+          <p className="text-lg font-extrabold text-violet-600">{fmt(liq.propinas)}</p>
+          <p className="text-[11px] text-gray-500 mt-0.5">Propinas</p>
+        </Card>
+        <Card className="text-center py-3">
+          <p className="text-lg font-extrabold text-amber-600">{fmt(liq.rendir)}</p>
+          <p className="text-[11px] text-gray-500 mt-0.5">Efectivo a rendir a Yendo</p>
+        </Card>
+        <Card className="text-center py-3">
+          <p className="text-lg font-extrabold text-blue-600">{fmt(liq.depositar)}</p>
+          <p className="text-[11px] text-gray-500 mt-0.5">Te deposita Yendo</p>
         </Card>
       </div>
 
@@ -358,15 +411,28 @@ function GananciasView({ cadete, ordenes }) {
           ? <p className="text-sm text-gray-400 text-center py-4">Sin entregas en este período</p>
           : (
             <div className="space-y-2">
-              {entregadas.slice(0, 20).map((o) => (
-                <div key={o.id} className="flex items-center justify-between text-sm py-1.5 border-b border-gray-50 last:border-0">
-                  <div>
-                    <p className="font-medium text-gray-700 truncate max-w-[180px]">{o.cliente_nombre ?? o.descripcion ?? 'Pedido'}</p>
-                    <p className="text-xs text-gray-400">{fmtFecha(o.entregada_en)}</p>
+              {entregadas.slice(0, 20).map((o) => {
+                const f = finanzasDe(o);
+                return (
+                  <div key={o.id} className="py-2 border-b border-gray-50 last:border-0">
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="min-w-0">
+                        <p className="font-medium text-gray-700 truncate max-w-[190px]">{o.cliente_nombre ?? o.descripcion ?? 'Pedido'}</p>
+                        <p className="text-xs text-gray-400">{fmtFechaDia(o.entregada_en)} · {f.efectivo ? 'Efectivo' : 'Online/transf.'}</p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-green-600 font-bold">{fmt(f.total)}</p>
+                        {f.propina > 0 && <p className="text-[11px] text-violet-600 font-semibold">incluye propina {fmt(f.propina)}</p>}
+                      </div>
+                    </div>
+                    <p className={`mt-1 text-[11px] font-semibold ${f.efectivo ? 'text-amber-600' : 'text-blue-600'}`}>
+                      {f.efectivo
+                        ? `Cobraste ${fmt(f.envio + f.propina)} · rendís ${fmt(f.rendir)} a Yendo`
+                        : `Yendo te deposita ${fmt(f.depositar)}`}
+                    </p>
                   </div>
-                  <span className="text-green-600 font-bold">${Math.round((o.ganancia_cadete ?? o.precio * 0.82) ?? 0).toLocaleString('es-AR')}</span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )
         }
@@ -438,23 +504,39 @@ function HistorialView({ ordenes }) {
       <h2 className="text-2xl font-extrabold text-gray-900">Historial</h2>
       {ordenes.length === 0
         ? <Card><p className="text-center text-gray-400 py-6">Sin pedidos aún</p></Card>
-        : ordenes.map((o) => (
-          <Card key={o.id}>
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-gray-800 truncate">{o.cliente_nombre ?? o.descripcion ?? 'Pedido'}</p>
-                <p className="text-xs text-gray-500 truncate">{o.direccion ?? o.destino}</p>
-                <p className="text-xs text-gray-400 mt-0.5">{fmtFecha(o.creado_en)}</p>
+        : ordenes.map((o) => {
+          const f = finanzasDe(o);
+          const entregada = o.estado === 'entregada';
+          return (
+            <Card key={o.id}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-gray-800 truncate">{o.cliente_nombre ?? o.descripcion ?? 'Pedido'}</p>
+                  <p className="text-xs text-gray-500 truncate">{o.direccion ?? o.destino}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {fmtFechaDia(o.entregada_en ?? o.creado_en)} · {o.tipo === 'particular' ? 'Privado' : 'Comercio'} · {f.efectivo ? 'Efectivo' : 'Online/transf.'}
+                  </p>
+                </div>
+                <div className="flex flex-col items-end gap-1 shrink-0">
+                  <Badge color={estadoColor[o.estado] ?? 'gray'}>{o.estado}</Badge>
+                  <span className="text-green-600 font-bold text-sm">{fmt(f.total)}</span>
+                </div>
               </div>
-              <div className="flex flex-col items-end gap-1 shrink-0">
-                <Badge color={estadoColor[o.estado] ?? 'gray'}>{o.estado}</Badge>
-                <span className="text-green-600 font-bold text-sm">
-                  ${Math.round((o.ganancia_cadete ?? (o.precio ?? 0) * 0.82)).toLocaleString('es-AR')}
-                </span>
+              <div className="mt-2 grid grid-cols-3 gap-2 border-t border-gray-50 pt-2 text-center text-[11px]">
+                <div><p className="text-gray-400">Envío</p><p className="font-bold text-gray-700">{fmt(f.envio)}</p></div>
+                <div><p className="text-gray-400">Yendo (18%)</p><p className="font-bold text-gray-700">{fmt(f.gYendo)}</p></div>
+                <div><p className="text-gray-400">Propina</p><p className="font-bold text-violet-600">{f.propina > 0 ? fmt(f.propina) : '—'}</p></div>
               </div>
-            </div>
-          </Card>
-        ))
+              {entregada && (
+                <p className={`mt-1.5 text-[11px] font-semibold ${f.efectivo ? 'text-amber-600' : 'text-blue-600'}`}>
+                  {f.efectivo
+                    ? `Efectivo a rendir a Yendo: ${fmt(f.rendir)}`
+                    : `A depositarte por Yendo: ${fmt(f.depositar)}`}
+                </p>
+              )}
+            </Card>
+          );
+        })
       }
     </div>
   );

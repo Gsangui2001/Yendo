@@ -44,7 +44,10 @@ export default function SolicitarCadete({ usuarioId, onPedidoCreado }) {
     destinoGuardado: '',
     zona:           '',
     metodoPago:     '',
+    distanciaKm:    '',
+    propina:        '',
   });
+  const [cotizacion, setCotizacion] = useState(null);
 
   // ── Cargar datos iniciales ─────────────────────────────────────────────
   useEffect(() => {
@@ -61,6 +64,29 @@ export default function SolicitarCadete({ usuarioId, onPedidoCreado }) {
     fetchDirecciones();
     fetchZonas();
   }, [usuarioId]);
+
+  // Cotización en vivo por km (el backend decide los montos)
+  useEffect(() => {
+    const km = Number(form.distanciaKm);
+    if (!Number.isFinite(km) || km <= 0) { setCotizacion(null); return; }
+    const t = setTimeout(async () => {
+      try {
+        const res = await apiFetch('/api/precios/cotizar', {
+          method: 'POST',
+          body: JSON.stringify({
+            tipo: 'particular',
+            distancia_km: km,
+            propina_cadete: Number(form.propina) || 0,
+            metodo_pago: form.metodoPago || 'efectivo',
+          }),
+        });
+        setCotizacion(res.ok ? await res.json() : null);
+      } catch {
+        setCotizacion(null);
+      }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [form.distanciaKm, form.propina, form.metodoPago]);
 
   // ── Handlers ───────────────────────────────────────────────────────────
   function handleOrigenGuardado(e) {
@@ -130,6 +156,7 @@ export default function SolicitarCadete({ usuarioId, onPedidoCreado }) {
 
     setLoading(true);
     try {
+      const km = Number(form.distanciaKm);
       const res = await apiFetch('/api/ordenes', {
         method:  'POST',
         body: JSON.stringify({
@@ -139,8 +166,11 @@ export default function SolicitarCadete({ usuarioId, onPedidoCreado }) {
           destino:     form.destino.trim(),
           zona:        form.zona,
           zona_label:  zonaSeleccionada?.label,
-          precio:      precio ?? 0,
+          distancia_km:   km > 0 ? km : undefined,
+          propina_cadete: Number(form.propina) || 0,
           metodo_pago: form.metodoPago,
+          // Legacy: si no cargaron distancia, va el precio de zona
+          precio:      km > 0 ? undefined : (precio ?? 0),
         }),
       });
 
@@ -277,13 +307,57 @@ export default function SolicitarCadete({ usuarioId, onPedidoCreado }) {
                 <option key={z.value} value={z.value}>{z.label} — ${(z.precio + SURCHARGE).toLocaleString('es-AR')}</option>
               ))}
             </select>
-            {precio != null && (
-              <p className="text-xs text-gray-500 mt-1.5 flex items-center gap-1 flex-wrap">
-                <Icon name="money" className="w-3.5 h-3.5 text-green-600" /> Precio del envío: <strong className="text-gray-800">${precio.toLocaleString('es-AR')}</strong>
-                <span className="text-gray-400">(incluye recargo particular de ${SURCHARGE.toLocaleString('es-AR')})</span>
-              </p>
-            )}
           </Field>
+
+          {/* Distancia y propina */}
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Distancia (km)">
+              <input type="number" min="0.5" step="0.5" inputMode="decimal" value={form.distanciaKm}
+                onChange={e => { setForm(prev => ({ ...prev, distanciaKm: e.target.value })); }}
+                placeholder="Ej: 4" className={inputCls()} />
+            </Field>
+            <Field label="Propina cadete (opcional)">
+              <input type="number" min="0" step="100" inputMode="numeric" value={form.propina}
+                onChange={e => { setForm(prev => ({ ...prev, propina: e.target.value })); }}
+                placeholder="$0" className={inputCls()} />
+            </Field>
+          </div>
+          <p className="-mt-2 text-xs text-gray-400">Tarifa: $3.500 hasta 5 km · $700 por km extra. La propina es 100% para el cadete.</p>
+
+          {/* Desglose cotizado */}
+          {(cotizacion || precio != null) && (
+            <div className="rounded-xl border border-green-100 bg-green-50 p-3 text-sm">
+              {cotizacion ? (
+                <>
+                  <div className="flex justify-between text-green-800">
+                    <span>Envío ({cotizacion.distancia_km} km)</span>
+                    <strong>${cotizacion.precio_envio.toLocaleString('es-AR')}</strong>
+                  </div>
+                  {cotizacion.recargo_clima_feriado > 0 && (
+                    <div className="flex justify-between text-green-800">
+                      <span>Incluye recargo {cotizacion.recargos_activos?.lluvia ? 'por lluvia' : 'por feriado'}</span>
+                      <strong>+${cotizacion.recargo_clima_feriado.toLocaleString('es-AR')}</strong>
+                    </div>
+                  )}
+                  {cotizacion.propina_cadete > 0 && (
+                    <div className="flex justify-between text-green-800">
+                      <span>Propina cadete</span>
+                      <strong>+${cotizacion.propina_cadete.toLocaleString('es-AR')}</strong>
+                    </div>
+                  )}
+                  <div className="mt-1 flex justify-between border-t border-green-200 pt-1 text-base font-extrabold text-green-700">
+                    <span>Total a pagar</span>
+                    <span>${cotizacion.total_cliente.toLocaleString('es-AR')}</span>
+                  </div>
+                </>
+              ) : (
+                <p className="text-xs text-gray-500 flex items-center gap-1 flex-wrap">
+                  <Icon name="money" className="w-3.5 h-3.5 text-green-600" /> Precio por zona: <strong className="text-gray-800">${precio.toLocaleString('es-AR')}</strong>
+                  <span className="text-gray-400">— ingresá la distancia para cotizar por km</span>
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Método de pago */}
           <div>

@@ -30,6 +30,7 @@ const PATHS = {
   clock:     ['M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z', 'M12 6v6l4 2'],
   star:      ['M12 2l2.9 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l7.1-1.01L12 2z'],
   zap:       ['M13 2 3 14h9l-1 8 10-12h-9l1-8z'],
+  gift:      ['M20 12v10H4V12', 'M2 7h20v5H2z', 'M12 22V7', 'M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z', 'M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z'],
 };
 
 export function Icon({ name, className = 'w-5 h-5', fill = false, strokeWidth = 2 }) {

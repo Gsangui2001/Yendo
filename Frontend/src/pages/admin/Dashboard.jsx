@@ -836,8 +836,59 @@ const FEE_YENDO = 0.18;
 
 const peso = n => '$' + Math.round(Number(n) || 0).toLocaleString('es-AR');
 
+// La beta vieja guardaba dia/mes/ano; la app real usa diario/mensual/anual.
+const normalizarPlan = (p) => {
+  const mapeo = { dia: 'diario', mes: 'mensual', ano: 'anual' };
+  const plan = mapeo[p] ?? p ?? 'sin_plan';
+  return plan in PLAN_MENSUAL ? plan : 'sin_plan';
+};
+
 function Finanzas({ perfil, ordenes, cadetes, comercios }) {
+  const toast = useToast();
   const [periodo, setPeriodo] = useState('mes'); // hoy | mes | historico
+  const [config, setConfig] = useState(null);                 // recargos lluvia/feriado
+  const [resumenCadetes, setResumenCadetes] = useState(null); // agregados por cadete (backend)
+  const [detalleCadete, setDetalleCadete] = useState(null);   // cadete del modal de historial
+  const [pedidosDetalle, setPedidosDetalle] = useState(null);
+
+  useEffect(() => {
+    let vivo = true;
+    apiFetch('/api/admin/configuracion')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (vivo) setConfig(d); })
+      .catch(() => {});
+    apiFetch('/api/admin/finanzas/cadetes')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (vivo) setResumenCadetes(d); })
+      .catch(() => {});
+    return () => { vivo = false; };
+  }, []);
+
+  async function toggleRecargo(campo) {
+    try {
+      const res = await apiFetch('/api/admin/configuracion', {
+        method: 'PATCH',
+        body: JSON.stringify({ [campo]: !config?.[campo] }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) { toast.error(data?.error ?? 'No se pudo actualizar la configuración'); return; }
+      setConfig(data);
+      toast.success(`Recargo ${data[campo] ? 'activado' : 'desactivado'}`);
+    } catch {
+      toast.error('Sin conexión con el backend.');
+    }
+  }
+
+  async function verDetalleCadete(c) {
+    setDetalleCadete(c);
+    setPedidosDetalle(null);
+    try {
+      const res = await apiFetch(`/api/ordenes?cadete_id=${c.id}&estado=entregada`);
+      setPedidosDetalle(res.ok ? await res.json() : []);
+    } catch {
+      setPedidosDetalle([]);
+    }
+  }
 
   const hoyStr = new Date().toISOString().slice(0, 10);
   const mesStr = hoyStr.slice(0, 7);
@@ -860,23 +911,14 @@ function Finanzas({ perfil, ordenes, cadetes, comercios }) {
   const comerciosActivos = comercios.filter(c => c.activo);
   const planes = ['diario', 'mensual', 'anual', 'sin_plan'];
   const porPlan = planes.map(p => {
-    const lista = comerciosActivos.filter(c => (c.plan ?? 'sin_plan') === p);
+    const lista = comerciosActivos.filter(c => normalizarPlan(c.plan) === p);
     return { plan: p, cantidad: lista.length, mensual: lista.length * (PLAN_MENSUAL[p] ?? 0) };
   });
   const abonoMensual = porPlan.reduce((s, p) => s + p.mensual, 0);
-  const comerciosConPlan = comerciosActivos.filter(c => c.plan && c.plan !== 'sin_plan').length;
+  const comerciosConPlan = comerciosActivos.filter(c => normalizarPlan(c.plan) !== 'sin_plan').length;
 
   // Ingreso total estimado de Yendo = comisión envíos (período) + abonos mensuales
   const ingresoYendo = comisionYendo + abonoMensual;
-
-  // Pago acumulado por cadete (sobre entregadas del período)
-  const porCadete = cadetes
-    .map(c => {
-      const suyas = entregadas.filter(o => o.cadete_id === c.id);
-      return { id: c.id, nombre: c.nombre, pedidos: suyas.length, pago: suyas.reduce((s, o) => s + gCadete(o), 0) };
-    })
-    .filter(c => c.pedidos > 0)
-    .sort((a, b) => b.pago - a.pago);
 
   // Facturación generada por comercio (período) + su abono mensual
   const porComercio = comercios
@@ -885,7 +927,7 @@ function Finanzas({ perfil, ordenes, cadetes, comercios }) {
       return {
         id: co.id,
         nombre: co.nombre,
-        plan: co.plan ?? 'sin_plan',
+        plan: normalizarPlan(co.plan),
         activo: co.activo,
         pedidos: suyas.length,
         facturado: suyas.reduce((s, o) => s + (Number(o.precio) || 0), 0),
@@ -948,28 +990,44 @@ function Finanzas({ perfil, ordenes, cadetes, comercios }) {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Pago a cadetes */}
+        {/* Recargos de tarifa (lluvia / feriado) */}
         <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold text-gray-900">A pagar a cadetes</h3>
-            <span className="text-sm font-extrabold text-gray-900">{peso(pagoCadetes)}</span>
-          </div>
-          {porCadete.length === 0
-            ? <Empty texto={`Sin entregas ${periodoLabel}`} />
-            : <div className="space-y-1">
-                {porCadete.map((c, i) => (
-                  <div key={c.id} className="flex items-center justify-between px-2 py-2.5 rounded-xl hover:bg-gray-50 transition-colors">
-                    <div className="flex items-center gap-3">
-                      <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${i === 0 ? 'bg-amber-100 text-amber-600' : i === 1 ? 'bg-gray-100 text-gray-500' : i === 2 ? 'bg-orange-100 text-orange-600' : 'bg-gray-50 text-gray-400'}`}>{i + 1}</span>
+          <h3 className="font-bold text-gray-900">Recargos de tarifa</h3>
+          <p className="text-xs text-gray-400 mt-0.5 mb-4">
+            Suma {peso(config?.recargo_monto ?? 500)} al envío (una sola vez aunque estén los dos activos). Se reparte 82/18 como el resto del envío.
+          </p>
+          {config === null
+            ? <p className="text-sm text-gray-400 py-3">Cargando configuración… (si no carga, corré la migración 004)</p>
+            : (
+              <div className="space-y-3">
+                {[
+                  { campo: 'recargo_lluvia_activo',  titulo: 'Día de lluvia',  desc: 'Activalo cuando llueve en Colón' },
+                  { campo: 'recargo_feriado_activo', titulo: 'Feriado',        desc: 'Activalo los días feriados' },
+                ].map(({ campo, titulo, desc }) => {
+                  const activo = Boolean(config?.[campo]);
+                  return (
+                    <div key={campo} className={`flex items-center justify-between rounded-xl border p-3 transition-colors ${activo ? 'border-green-300 bg-green-50' : 'border-gray-100'}`}>
                       <div>
-                        <p className="font-semibold text-sm text-gray-800">{c.nombre}</p>
-                        <p className="text-xs text-gray-400">{c.pedidos} {c.pedidos === 1 ? 'entrega' : 'entregas'}</p>
+                        <p className="text-sm font-bold text-gray-800">{titulo}</p>
+                        <p className="text-xs text-gray-400">{desc}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {activo && <span className="rounded-full bg-green-600 px-2 py-0.5 text-[10px] font-bold text-white">ACTIVO</span>}
+                        <button onClick={() => toggleRecargo(campo)}
+                          className={`relative h-6 w-12 rounded-full transition-colors ${activo ? 'bg-green-500' : 'bg-gray-300'}`}>
+                          <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${activo ? 'translate-x-6' : 'translate-x-0.5'}`} />
+                        </button>
                       </div>
                     </div>
-                    <span className="text-sm font-bold text-green-600">{peso(c.pago)}</span>
-                  </div>
-                ))}
-              </div>}
+                  );
+                })}
+                {(config?.recargo_lluvia_activo || config?.recargo_feriado_activo) && (
+                  <p className="rounded-xl bg-amber-50 border border-amber-100 px-3 py-2 text-xs font-semibold text-amber-700">
+                    Recargo de {peso(config?.recargo_monto ?? 500)} aplicándose a todos los pedidos nuevos.
+                  </p>
+                )}
+              </div>
+            )}
         </div>
 
         {/* Facturación por comercio */}
@@ -1006,6 +1064,99 @@ function Finanzas({ perfil, ordenes, cadetes, comercios }) {
               </div>}
         </div>
       </div>
+
+      {/* Finanzas por cadete (control de efectivo y depósitos) */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+        <div className="mb-4">
+          <h3 className="font-bold text-gray-900">Finanzas por cadete</h3>
+          <p className="text-xs text-gray-400 mt-0.5">Histórico de entregas: cuánto facturó cada uno, el efectivo que debe rendir y lo que hay que depositarle.</p>
+        </div>
+        {resumenCadetes === null
+          ? <p className="text-sm text-gray-400 py-4">Cargando…</p>
+          : resumenCadetes.length === 0
+            ? <Empty texto="Sin cadetes" />
+            : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-xs text-gray-400 uppercase border-b border-gray-100">
+                      <th className="text-left pb-2 pr-3 font-semibold">Cadete</th>
+                      <th className="text-right pb-2 px-3 font-semibold">Viajes</th>
+                      <th className="text-right pb-2 px-3 font-semibold">Facturado</th>
+                      <th className="text-right pb-2 px-3 font-semibold">Yendo 18%</th>
+                      <th className="text-right pb-2 px-3 font-semibold">Cadete 82%</th>
+                      <th className="text-right pb-2 px-3 font-semibold">Propinas</th>
+                      <th className="text-right pb-2 px-3 font-semibold text-amber-600">Efectivo a rendir</th>
+                      <th className="text-right pb-2 px-3 font-semibold text-blue-600">A depositar</th>
+                      <th className="pb-2 pl-3"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {resumenCadetes.map((c) => (
+                      <tr key={c.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50">
+                        <td className="py-2.5 pr-3">
+                          <p className="font-semibold text-gray-800">{c.nombre}</p>
+                          <p className="text-[11px] text-gray-400 capitalize">{String(c.zona ?? '').replace(/_/g, ' ')}</p>
+                        </td>
+                        <td className="py-2.5 px-3 text-right text-gray-600">{c.viajes}</td>
+                        <td className="py-2.5 px-3 text-right font-bold text-gray-900">{peso(c.total_facturado)}</td>
+                        <td className="py-2.5 px-3 text-right text-gray-600">{peso(c.total_yendo)}</td>
+                        <td className="py-2.5 px-3 text-right text-green-600 font-semibold">{peso(c.total_cadete)}</td>
+                        <td className="py-2.5 px-3 text-right text-violet-600">{c.total_propinas > 0 ? peso(c.total_propinas) : '—'}</td>
+                        <td className="py-2.5 px-3 text-right font-bold text-amber-600">{peso(c.efectivo_a_rendir)}</td>
+                        <td className="py-2.5 px-3 text-right font-bold text-blue-600">{peso(c.a_depositar)}</td>
+                        <td className="py-2.5 pl-3 text-right">
+                          <button onClick={() => verDetalleCadete(c)}
+                            className="rounded-lg bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-200">
+                            Historial
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+      </div>
+
+      {/* Modal: historial de pedidos del cadete */}
+      {detalleCadete && (
+        <Modal titulo={`Historial de ${detalleCadete.nombre}`} onClose={() => setDetalleCadete(null)}>
+          <div className="mb-3 grid grid-cols-2 gap-2 text-center text-xs">
+            <div className="rounded-xl bg-amber-50 p-2">
+              <p className="font-extrabold text-amber-600">{peso(detalleCadete.efectivo_a_rendir)}</p>
+              <p className="text-gray-500">Efectivo a rendir</p>
+            </div>
+            <div className="rounded-xl bg-blue-50 p-2">
+              <p className="font-extrabold text-blue-600">{peso(detalleCadete.a_depositar)}</p>
+              <p className="text-gray-500">A depositarle</p>
+            </div>
+          </div>
+          <div className="max-h-80 space-y-2 overflow-y-auto">
+            {pedidosDetalle === null
+              ? <p className="py-4 text-center text-sm text-gray-400">Cargando pedidos…</p>
+              : pedidosDetalle.length === 0
+                ? <p className="py-4 text-center text-sm text-gray-400">Sin entregas registradas</p>
+                : pedidosDetalle.map((o) => {
+                  const envio   = Number(o.precio_envio ?? o.precio ?? 0);
+                  const propina = Number(o.propina_cadete ?? 0);
+                  const efectivo = ['efectivo', 'paga_cliente'].includes(String(o.metodo_pago ?? 'efectivo').toLowerCase());
+                  return (
+                    <div key={o.id} className="rounded-xl border border-gray-100 p-2.5 text-xs">
+                      <div className="flex justify-between gap-2">
+                        <span className="font-semibold text-gray-800 truncate">{o.cliente_nombre ?? o.descripcion ?? 'Pedido'}</span>
+                        <span className="font-bold text-gray-900 shrink-0">{peso(envio)}</span>
+                      </div>
+                      <div className="mt-0.5 flex justify-between text-gray-400">
+                        <span>{o.entregada_en ? new Date(o.entregada_en).toLocaleDateString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'} · {efectivo ? 'Efectivo' : 'Online/transf.'}</span>
+                        {propina > 0 && <span className="font-semibold text-violet-600">propina {peso(propina)}</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+          </div>
+        </Modal>
+      )}
 
       {/* Resumen de reparto */}
       <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">

@@ -49,17 +49,34 @@ export default function ComercioApp({ perfil, page, setPage }) {
     return () => supabase.removeChannel(ch);
   }, [comercio]);
 
+  // Teléfono/GPS del cadete asignado al pedido en seguimiento (vía backend,
+  // que valida que tengamos un pedido activo con él).
+  const [contactoCadete, setContactoCadete] = useState(null);
+  const ordenConCadete = ordenes.find(o => ['asignada', 'en_camino'].includes(o.estado)) ?? null;
+  const cadeteAsignadoId = ordenConCadete?.cadete_id ?? ordenConCadete?.asignado_a_id ?? null;
+  useEffect(() => {
+    if (!cadeteAsignadoId) { setContactoCadete(null); return; }
+    let vivo = true;
+    apiFetch(`/api/cadetes/${cadeteAsignadoId}/contacto`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => { if (vivo) setContactoCadete(data); })
+      .catch(() => { if (vivo) setContactoCadete(null); });
+    return () => { vivo = false; };
+  }, [cadeteAsignadoId]);
+
   async function cargarDatos() {
     setLoadingData(true);
     const { data: com } = await supabase.from('comercios').select('*').eq('owner_id', perfil.id).single();
     setComercio(com);
     if (com) await Promise.all([cargarOrdenes(com.id), cargarClientes(com.id)]);
-    const { data: cad } = await supabase
-      .from('cadetes')
-      .select('*')
-      .in('estado', ['disponible', 'en_viaje'])
-      .limit(30);
-    setCadetes(cad ?? []);
+    // Lista operativa vía backend: columnas seguras, sin ganancias ni teléfono.
+    // El teléfono del cadete asignado sale de /contacto (validado por pedido).
+    try {
+      const res = await apiFetch('/api/cadetes/activos');
+      setCadetes(res.ok ? await res.json() : []);
+    } catch {
+      setCadetes([]);
+    }
     setLoadingData(false);
   }
   async function cargarOrdenes(cid) {
@@ -115,8 +132,12 @@ export default function ComercioApp({ perfil, page, setPage }) {
   const nombre = comercio?.nombre ?? perfil?.nombre ?? 'Comercio';
   const cadetesDisponibles = cadetes.filter(c => c.estado === 'disponible');
   const pedidoEnSeguimiento = activas.find(o => ['asignada', 'en_camino'].includes(o.estado)) ?? activas[0] ?? null;
-  const cadeteAsignado = pedidoEnSeguimiento
-    ? cadetes.find(c => c.id === pedidoEnSeguimiento.cadete_id || c.id === pedidoEnSeguimiento.asignado_a_id)
+  const cadeteBase = pedidoEnSeguimiento
+    ? cadetes.find(c => c.id === pedidoEnSeguimiento.cadete_id || c.id === pedidoEnSeguimiento.asignado_a_id) ?? null
+    : null;
+  // Merge: la lista /activos trae nombre/zona/GPS; /contacto suma el teléfono.
+  const cadeteAsignado = (cadeteBase || contactoCadete)
+    ? { ...(cadeteBase ?? {}), ...(contactoCadete ?? {}) }
     : null;
   const ordenMapa = pedidoEnSeguimiento ?? {
     estado: 'pendiente',
@@ -227,8 +248,20 @@ export default function ComercioApp({ perfil, page, setPage }) {
             </div>
           )}
         </div>
-        <div className="flex items-center gap-3">
-          <Btn onClick={() => setPage('pedido')} icon="+" size="lg">Nuevo pedido</Btn>
+        <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
+          <button
+            onClick={() => setPage('pedido')}
+            className="group flex min-h-[72px] w-full items-center justify-between gap-4 rounded-2xl bg-green-600 px-5 py-4 text-left text-white shadow-lift transition-all hover:-translate-y-0.5 hover:bg-green-700 active:translate-y-0 active:scale-[0.99] sm:min-w-[260px]"
+          >
+            <span>
+              <span className="block text-xs font-semibold uppercase tracking-wide text-green-100">Acción principal</span>
+              <span className="block text-xl font-extrabold leading-tight">Nuevo pedido</span>
+              <span className="mt-0.5 block text-xs font-medium text-green-100">Pedir cadete ahora</span>
+            </span>
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-green-700 transition-transform group-hover:scale-105">
+              <Icon name="plus" className="h-6 w-6" />
+            </span>
+          </button>
           <div className="hidden sm:flex items-center gap-2 bg-white border border-gray-100 rounded-xl px-3 py-2 shadow-sm">
             <Avatar nombre={nombre} />
             <div className="pr-1">
@@ -257,7 +290,10 @@ export default function ComercioApp({ perfil, page, setPage }) {
                 {pedidoEnSeguimiento ? 'Seguimiento del pedido activo' : 'Vista estimada hasta crear un pedido'}
               </p>
             </div>
-            <Btn onClick={() => setPage('pedido')} size="sm" icon="+">Pedir cadete</Btn>
+            <button onClick={() => setPage('pedido')} className="inline-flex items-center gap-2 rounded-xl bg-green-600 px-4 py-2.5 text-sm font-extrabold text-white shadow-sm transition-all hover:bg-green-700 active:scale-95">
+              <Icon name="plus" className="h-4 w-4" />
+              Pedir cadete
+            </button>
           </div>
           <TrackingMap
             order={ordenMapa}
@@ -284,7 +320,8 @@ export default function ComercioApp({ perfil, page, setPage }) {
                   <p className="text-3xl mb-2">+</p>
                   <p className="font-bold text-gray-900">No hay pedidos activos</p>
                   <p className="text-sm text-gray-500 mt-1">Creá uno y vas a ver el seguimiento acá.</p>
-                  <button onClick={() => setPage('pedido')} className="mt-4 rounded-xl bg-green-600 px-4 py-2 text-sm font-bold text-white hover:bg-green-700">
+                  <button onClick={() => setPage('pedido')} className="mt-4 inline-flex items-center justify-center gap-2 rounded-xl bg-green-600 px-5 py-3 text-sm font-extrabold text-white shadow-sm hover:bg-green-700">
+                    <Icon name="plus" className="h-4 w-4" />
                     Nuevo pedido
                   </button>
                 </div>
@@ -377,7 +414,7 @@ export default function ComercioApp({ perfil, page, setPage }) {
       <div className="animate-slide-up" style={{ animationDelay: '350ms' }}>
         <h3 className="font-bold text-gray-900 mb-3">Acciones rápidas</h3>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 stagger">
-          <QuickAction icon="plus"   titulo="Nuevo pedido"  sub="Hacé un pedido"     tint="green"  onClick={() => setPage('pedido')}    idx={0} />
+          <QuickAction icon="plus"   titulo="Nuevo pedido"  sub="Pedir cadete ahora" tint="green"  onClick={() => setPage('pedido')}    idx={0} primary />
           <QuickAction icon="users"  titulo="Clientes"      sub="Gestioná clientes"  tint="violet" onClick={() => setPage('clientes')}  idx={1} />
           <QuickAction icon="list"   titulo="Pedidos"       sub="Ver historial"      tint="blue"   onClick={() => setPage('historial')} idx={2} />
           <QuickAction icon="wallet" titulo="Saldo y plan"   sub="Estado de cuenta"   tint="amber"  onClick={() => setPage('saldo')}     idx={3} />
@@ -529,19 +566,22 @@ function MiniStat({ label, value, icon }) {
   );
 }
 
-function QuickAction({ icon, titulo, sub, tint, onClick, idx = 0 }) {
+function QuickAction({ icon, titulo, sub, tint, onClick, idx = 0, primary = false }) {
   const t = TINT_MAP[tint] ?? TINT_MAP.green;
   return (
     <button
       onClick={onClick}
       style={{ animationDelay: `${idx * 60}ms` }}
-      className="bg-white border border-gray-100 rounded-2xl p-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lift hover:border-gray-200 active:scale-95 group animate-slide-up"
+      className={[
+        'rounded-2xl p-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lift active:scale-95 group animate-slide-up',
+        primary ? 'bg-green-600 text-white border border-green-600 sm:col-span-2' : 'bg-white border border-gray-100 hover:border-gray-200',
+      ].join(' ')}
     >
-      <div className={`w-11 h-11 rounded-xl ${t.icon} ${t.text} flex items-center justify-center mb-3 transition-transform duration-200 group-hover:scale-110`}>
+      <div className={`w-11 h-11 rounded-xl ${primary ? 'bg-white/15 text-white' : `${t.icon} ${t.text}`} flex items-center justify-center mb-3 transition-transform duration-200 group-hover:scale-110`}>
         <Icon name={icon} className="w-5 h-5" />
       </div>
-      <p className="font-bold text-sm text-gray-800">{titulo}</p>
-      <p className="text-xs text-gray-400 mt-0.5">{sub}</p>
+      <p className={`font-bold text-sm ${primary ? 'text-white' : 'text-gray-800'}`}>{titulo}</p>
+      <p className={`text-xs mt-0.5 ${primary ? 'text-green-100' : 'text-gray-400'}`}>{sub}</p>
     </button>
   );
 }

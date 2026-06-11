@@ -18,9 +18,25 @@ router.patch('/ordenes/:id', async (req, res) => {
     return res.status(400).json({ error: `estado inválido. Valores: ${ESTADOS_ORDEN.join(', ')}` });
   }
 
+  const updateData = { estado };
+
+  // Si el admin marca entregada a mano, dejar la orden consistente con el
+  // flujo normal del cadete: fecha de entrega + split 82/18.
+  if (estado === 'entregada') {
+    const { data: actual } = await supabase
+      .from('ordenes')
+      .select('precio, entregada_en, ganancia_cadete, ganancia_yendo')
+      .eq('id', id)
+      .single();
+    const precio = Number(actual?.precio ?? 0);
+    if (!actual?.entregada_en)         updateData.entregada_en = new Date().toISOString();
+    if (actual?.ganancia_cadete == null) updateData.ganancia_cadete = Math.round(precio * 0.82 * 100) / 100;
+    if (actual?.ganancia_yendo == null)  updateData.ganancia_yendo  = Math.round(precio * 0.18 * 100) / 100;
+  }
+
   const { data, error } = await supabase
     .from('ordenes')
-    .update({ estado })
+    .update(updateData)
     .eq('id', id)
     .select()
     .single();
@@ -199,6 +215,109 @@ router.delete('/zonas/:id', async (req, res) => {
   }
 
   return res.status(204).send();
+});
+
+// ── CONFIGURACION DEL SERVICIO (recargos lluvia/feriado) ────────────────────
+router.get('/configuracion', async (_req, res) => {
+  const { data, error } = await supabase
+    .from('configuracion_servicio')
+    .select('*')
+    .eq('id', 1)
+    .maybeSingle();
+
+  if (error) {
+    console.error('[GET /api/admin/configuracion]', error.message);
+    return res.status(500).json({ error: 'No se pudo leer la configuración (¿corriste la migración 004?)' });
+  }
+  return res.json(data ?? { recargo_feriado_activo: false, recargo_lluvia_activo: false, recargo_monto: 500 });
+});
+
+router.patch('/configuracion', async (req, res) => {
+  const { recargo_feriado_activo, recargo_lluvia_activo, recargo_monto } = req.body;
+  const updateData = { actualizado_en: new Date().toISOString() };
+
+  if (recargo_feriado_activo !== undefined) updateData.recargo_feriado_activo = Boolean(recargo_feriado_activo);
+  if (recargo_lluvia_activo  !== undefined) updateData.recargo_lluvia_activo  = Boolean(recargo_lluvia_activo);
+  if (recargo_monto !== undefined) {
+    const monto = Number(recargo_monto);
+    if (!Number.isFinite(monto) || monto < 0 || monto > 50000) {
+      return res.status(400).json({ error: 'recargo_monto inválido' });
+    }
+    updateData.recargo_monto = monto;
+  }
+
+  const { data, error } = await supabase
+    .from('configuracion_servicio')
+    .update(updateData)
+    .eq('id', 1)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('[PATCH /api/admin/configuracion]', error.message);
+    return res.status(500).json({ error: 'No se pudo actualizar la configuración (¿corriste la migración 004?)' });
+  }
+  return res.json(data);
+});
+
+// ── FINANZAS POR CADETE ──────────────────────────────────────────────────────
+// Agregados de TODOS los pedidos entregados, por cadete: facturado, reparto,
+// propinas, efectivo a rendir y monto a depositar.
+router.get('/finanzas/cadetes', async (_req, res) => {
+  const { data: cadetes, error: e1 } = await supabase
+    .from('cadetes')
+    .select('id, nombre, telefono, zona, estado, activo');
+
+  let { data: ordenes, error: e2 } = await supabase
+    .from('ordenes')
+    .select('id, cadete_id, estado, precio, precio_envio, ganancia_cadete, ganancia_yendo, propina_cadete, total_cadete, efectivo_a_rendir, monto_a_depositar_cadete, metodo_pago, entregada_en')
+    .eq('estado', 'entregada');
+
+  // Migración 004 sin aplicar: pedir solo las columnas que existen seguro
+  if (e2 && /does not exist|Could not find/i.test(e2.message)) {
+    ({ data: ordenes, error: e2 } = await supabase
+      .from('ordenes')
+      .select('id, cadete_id, estado, precio, ganancia_cadete, ganancia_yendo, metodo_pago, entregada_en')
+      .eq('estado', 'entregada'));
+  }
+
+  if (e1 || e2) {
+    console.error('[GET /api/admin/finanzas/cadetes]', e1?.message ?? e2?.message);
+    return res.status(500).json({ error: 'No se pudo calcular las finanzas' });
+  }
+
+  const r2 = (n) => Math.round(n * 100) / 100;
+  const resumen = (cadetes ?? []).map((c) => {
+    const propios = (ordenes ?? []).filter((o) => o.cadete_id === c.id);
+    let facturado = 0, yendo = 0, cadete = 0, propinas = 0, rendir = 0, depositar = 0;
+    for (const o of propios) {
+      const envio    = Number(o.precio_envio ?? o.precio ?? 0);
+      const gYendo   = Number(o.ganancia_yendo  ?? envio * 0.18);
+      const gCadete  = Number(o.ganancia_cadete ?? envio - gYendo);
+      const propina  = Number(o.propina_cadete ?? 0);
+      const total    = Number(o.total_cadete ?? gCadete + propina);
+      const efectivo = ['efectivo', 'paga_cliente'].includes(String(o.metodo_pago ?? 'efectivo').toLowerCase());
+      facturado += envio;
+      yendo     += gYendo;
+      cadete    += gCadete;
+      propinas  += propina;
+      rendir    += Number(o.efectivo_a_rendir        ?? (efectivo ? gYendo : 0));
+      depositar += Number(o.monto_a_depositar_cadete ?? (efectivo ? 0 : total));
+    }
+    return {
+      id: c.id, nombre: c.nombre, telefono: c.telefono, zona: c.zona,
+      estado: c.estado, activo: c.activo,
+      viajes: propios.length,
+      total_facturado:  r2(facturado),
+      total_yendo:      r2(yendo),
+      total_cadete:     r2(cadete),
+      total_propinas:   r2(propinas),
+      efectivo_a_rendir: r2(rendir),
+      a_depositar:       r2(depositar),
+    };
+  }).sort((a, b) => b.total_facturado - a.total_facturado);
+
+  return res.json(resumen);
 });
 
 export default router;

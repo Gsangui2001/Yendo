@@ -49,6 +49,9 @@ export function AssignmentModal({ cadete, onAceptar }) {
   }, []);
 
   const mostrarPedido = useCallback((orden) => {
+    // No pisar el pedido que el cadete ya está mirando con OTRO distinto:
+    // podría aceptar B creyendo que es A. El siguiente llega al cerrar este.
+    if (pedidoRef.current && pedidoRef.current.id !== orden.id) return;
     if (!alarmaRef.current) {
       alarmaRef.current = true;
       tocarAlarma();

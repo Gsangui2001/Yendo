@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
+import { Icon as UiIcon } from './ui/Icon';
+import { useToast } from './ui/feedback';
 
 const ROL_LABEL = { comercio: 'Comercio', cadete: 'Cadete', privado: 'Privado', admin: 'Admin' };
 
@@ -38,6 +40,7 @@ const YendoLogo = ({ size = 8 }) => (
 );
 
 export default function Layout({ perfil, page, setPage, children }) {
+  const toast = useToast();
   const [mobileOpen, setMobileOpen] = useState(false);
   const navItems = navByRol(perfil?.rol);
   const initials = (perfil?.nombre ?? 'U').split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase();
@@ -45,6 +48,17 @@ export default function Layout({ perfil, page, setPage, children }) {
   function handleNav(key) {
     setPage(key);
     setMobileOpen(false);
+  }
+
+  function copiarInvitacion() {
+    const texto = 'Sumate a Yendo, envíos rápidos en Colón: https://yendo-landing.netlify.app';
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(texto)
+        .then(() => toast?.success('Link de invitación copiado'))
+        .catch(() => toast?.info(texto));
+    } else {
+      toast?.info(texto);
+    }
   }
 
   const sidebar = (
@@ -101,18 +115,22 @@ export default function Layout({ perfil, page, setPage, children }) {
       <div className="px-3 pb-3">
         <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl p-4 border border-green-100">
           <div className="flex items-center gap-2 mb-1">
-            <span className="text-lg">🎁</span>
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-green-100 text-green-600">
+              <UiIcon name="gift" className="w-4 h-4" />
+            </span>
             <p className="text-sm font-bold text-gray-800">Invitá y ganá</p>
           </div>
           <p className="text-xs text-gray-500 mb-3">Compartí tu link y ganá descuentos</p>
-          <button className="
+          <button
+            onClick={copiarInvitacion}
+            className="
             w-full bg-green-600 text-white text-sm font-bold py-2 rounded-xl
             transition-all duration-200
             hover:bg-green-700 hover:-translate-y-0.5 hover:shadow-md
             active:translate-y-0 active:scale-95
             ripple
           ">
-            Invitar ahora
+            Copiar link de invitación
           </button>
         </div>
       </div>

@@ -51,13 +51,16 @@ export default function PrivadoApp({ perfil, page, setPage }) {
     setLoading(false);
   }
 
-  // Trae el cadete asignado al pedido en seguimiento (nombre, teléfono, GPS)
+  // Trae el cadete asignado al pedido en seguimiento (nombre, teléfono, GPS).
+  // Va por backend: valida que tengamos un pedido activo con ese cadete.
   const cadeteId = tracking?.cadete_id ?? tracking?.asignado_a_id ?? null;
   useEffect(() => {
     if (!cadeteId) { setCadeteTracking(null); return; }
     let vivo = true;
-    supabase.from('cadetes').select('nombre,telefono,estado,ubicacion_lat,ubicacion_lng').eq('id', cadeteId).maybeSingle()
-      .then(({ data }) => { if (vivo) setCadeteTracking(data ?? null); });
+    apiFetch(`/api/cadetes/${cadeteId}/contacto`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => { if (vivo) setCadeteTracking(data ?? null); })
+      .catch(() => { if (vivo) setCadeteTracking(null); });
     return () => { vivo = false; };
   }, [cadeteId]);
 

@@ -15,10 +15,14 @@ export function useAuth() {
     });
 
     // Cambios de sesión
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null);
-      if (session?.user) fetchPerfil(session.user.id);
-      else { setPerfil(null); setLoading(false); }
+      if (!session?.user) { setPerfil(null); setLoading(false); return; }
+      // El refresh de token (~cada hora) no cambia el perfil: si volvemos a
+      // poner loading acá, la app entera se desmonta con el spinner y el
+      // usuario pierde la página en la que estaba.
+      if (event === 'TOKEN_REFRESHED') return;
+      fetchPerfil(session.user.id);
     });
 
     return () => subscription.unsubscribe();
