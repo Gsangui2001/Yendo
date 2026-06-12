@@ -151,7 +151,7 @@ export default function ComercioApp({ perfil, page, setPage }) {
   if (page === 'pedido') return (
     <div className="animate-fade-in">
       <PageHeader titulo="Nuevo pedido" sub="Creá un pedido para tu comercio" onBack={() => setPage('inicio')} />
-      <Pedido comercioId={comercio?.id} onSuccess={() => { setPage('inicio'); cargarOrdenes(); }} />
+      <Pedido comercioId={comercio?.id} comercio={comercio} onSuccess={() => { setPage('inicio'); cargarOrdenes(); }} />
     </div>
   );
 

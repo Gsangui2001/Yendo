@@ -14,7 +14,10 @@ function distanciaMetros(lat1, lng1, lat2, lng2) {
 
 /**
  * Encuentra el mejor cadete disponible para una orden.
- * Criterios (en orden):
+ * La zona es una PREFERENCIA, no un filtro: primero se intenta con cadetes
+ * de la misma zona; si no hay ninguno, sirve cualquier cadete disponible
+ * (Colón es chico: mejor un cadete de otra zona que un pedido sin asignar).
+ * Criterios de orden:
  *   1. Proximidad geográfica al origen (si ambos tienen GPS, diferencia > 300m importa)
  *   2. Fairness: el que hace más tiempo no entregó
  *
@@ -24,18 +27,20 @@ function distanciaMetros(lat1, lng1, lat2, lng2) {
 export async function encontrarCadete(orden) {
   const { data: cadetes, error } = await supabase
     .from('cadetes')
-    .select('id, ubicacion_lat, ubicacion_lng, ultima_entrega_en')
+    .select('id, zona, ubicacion_lat, ubicacion_lng, ultima_entrega_en')
     .eq('estado', 'disponible')
-    .eq('zona', orden.zona)
     .eq('activo', true);
 
   if (error || !cadetes?.length) return null;
 
   // Excluir cadetes que ya rechazaron este pedido
   const rechazos = orden.rechazos || [];
-  const candidatos = cadetes.filter((c) => !rechazos.includes(c.id));
+  const disponibles = cadetes.filter((c) => !rechazos.includes(c.id));
+  if (!disponibles.length) return null;
 
-  if (!candidatos.length) return null;
+  // Preferir los de la misma zona; si no hay, cualquiera disponible
+  const mismaZona = disponibles.filter((c) => c.zona === orden.zona);
+  const candidatos = mismaZona.length ? mismaZona : disponibles;
 
   return candidatos.sort((a, b) => {
     // Criterio 1: distancia al origen (si hay coordenadas disponibles)
@@ -63,12 +68,13 @@ export async function encontrarCadete(orden) {
  * @param {string} zona
  * @returns {number} minutos estimados de espera
  */
-export async function estimarEspera(zona) {
+export async function estimarEspera(_zona) {
+  // Sin filtro de zona: si hay algún cadete trabajando en la ciudad, hay
+  // chance de que se libere pronto.
   const { data: enViaje } = await supabase
     .from('cadetes')
     .select('id')
     .eq('estado', 'en_viaje')
-    .eq('zona', zona)
     .eq('activo', true);
 
   if (!enViaje?.length) return 20; // no hay nadie trabajando

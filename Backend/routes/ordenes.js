@@ -4,6 +4,8 @@ import { encontrarCadete, estimarEspera } from '../lib/matching.js';
 import { authenticate, isAdmin, requireRole } from '../middleware/auth.js';
 import { calcularPrecio, FEE_YENDO } from '../lib/pricing.js';
 import { leerConfigServicio } from './precios.js';
+import { distanciaRutaKm } from '../lib/geo.js';
+import { resolverCoordenadas, cargarConCoords, coordsValidas } from '../lib/ubicaciones.js';
 
 const router = Router();
 router.use(authenticate);
@@ -31,7 +33,6 @@ router.post('/', async (req, res) => {
     if (!body.cliente_id)  errores.push('cliente_id es requerido');
     if (!body.direccion)   errores.push('direccion es requerida');
     if (!body.zona)        errores.push('zona es requerida');
-    if (!tieneDistancia && !body.precio) errores.push('distancia_km o precio es requerido');
   }
 
   if (esParticular) {
@@ -40,7 +41,6 @@ router.post('/', async (req, res) => {
     if (!body.origen)      errores.push('origen es requerido');
     if (!body.destino)     errores.push('destino es requerido');
     if (!body.zona)        errores.push('zona es requerida');
-    if (!tieneDistancia && !body.precio) errores.push('distancia_km o precio es requerido');
     if (!body.metodo_pago) errores.push('metodo_pago es requerido');
   }
 
@@ -56,29 +56,86 @@ router.post('/', async (req, res) => {
     return res.status(403).json({ error: 'No podes crear pedidos para otro usuario' });
   }
 
-  if (esComercio && !isAdmin(req)) {
-    if (req.perfil?.rol !== 'comercio') {
-      return res.status(403).json({ error: 'Solo comercios pueden crear pedidos comerciales' });
-    }
-    const { data: comercio, error: comercioError } = await supabase
-      .from('comercios')
-      .select('id, owner_id, activo')
-      .eq('id', body.comercio_id)
-      .single();
+  let comercioRow = null;
+  let clienteRow  = null;
+  if (esComercio) {
+    const { data: comercio, error: comercioError } = await cargarConCoords('comercios', body.comercio_id, 'id, owner_id, activo, direccion');
 
-    if (comercioError || !comercio || comercio.owner_id !== req.user.id || !comercio.activo) {
+    if (comercioError || !comercio) {
       return res.status(403).json({ error: 'Comercio no habilitado para crear este pedido' });
     }
+    comercioRow = comercio;
 
-    const { data: cliente, error: clienteError } = await supabase
-      .from('clientes')
-      .select('id, comercio_id')
-      .eq('id', body.cliente_id)
-      .single();
+    if (!isAdmin(req)) {
+      if (req.perfil?.rol !== 'comercio') {
+        return res.status(403).json({ error: 'Solo comercios pueden crear pedidos comerciales' });
+      }
+      if (comercio.owner_id !== req.user.id || !comercio.activo) {
+        return res.status(403).json({ error: 'Comercio no habilitado para crear este pedido' });
+      }
+    }
 
-    if (clienteError || !cliente || cliente.comercio_id !== body.comercio_id) {
+    const { data: cliente, error: clienteError } = await cargarConCoords('clientes', body.cliente_id, 'id, comercio_id, direccion');
+    if (!isAdmin(req) && (clienteError || !cliente || cliente.comercio_id !== body.comercio_id)) {
       return res.status(403).json({ error: 'Cliente no pertenece al comercio indicado' });
     }
+    if (cliente && cliente.comercio_id === body.comercio_id) clienteRow = cliente;
+  }
+
+  // Direcciones guardadas del particular (para usar/persistir sus lat/lng)
+  let dirOrigenRow = null, dirDestinoRow = null;
+  if (esParticular) {
+    for (const [id, asignar] of [
+      [body.origen_direccion_id,  (d) => { dirOrigenRow  = d; }],
+      [body.destino_direccion_id, (d) => { dirDestinoRow = d; }],
+    ]) {
+      if (!id) continue;
+      const { data: dir } = await cargarConCoords('direcciones', id, 'id, usuario_id, direccion');
+      if (dir && (isAdmin(req) || dir.usuario_id === req.user.id)) asignar(dir);
+    }
+  }
+
+  // ── Distancia automática EN BACKEND ───────────────────────────────────
+  // Origen: dirección del comercio registrado (comercio) o la cargada (particular).
+  // Destino: dirección de entrega. Prioridad: coordenadas YA GUARDADAS en
+  // comercio/cliente/dirección; geocoder solo si faltan (y se persisten).
+  const direccionOrigen  = esComercio ? (comercioRow?.direccion ?? null) : (body.origen ?? null);
+  const direccionDestino = esComercio ? (body.direccion ?? null) : (body.destino ?? null);
+  const entidadOrigen  = esComercio
+    ? (comercioRow ? { tabla: 'comercios', ...comercioRow } : null)
+    : (dirOrigenRow ? { tabla: 'direcciones', ...dirOrigenRow } : null);
+  const entidadDestino = esComercio
+    ? (clienteRow ? { tabla: 'clientes', ...clienteRow } : null)
+    : (dirDestinoRow ? { tabla: 'direcciones', ...dirDestinoRow } : null);
+
+  let geoOrigen = null, geoDestino = null, distanciaKm = null, distanciaPor = null;
+  try {
+    if (direccionOrigen?.trim() && direccionDestino?.trim()) {
+      geoOrigen = await resolverCoordenadas(direccionOrigen, entidadOrigen);
+      if (geoOrigen) geoDestino = await resolverCoordenadas(direccionDestino, entidadDestino);
+      if (geoOrigen && geoDestino) {
+        const ruta = await distanciaRutaKm(geoOrigen, geoDestino);
+        const km = Math.max(0.1, ruta.km);
+        if (km <= 100) {
+          distanciaKm  = km;
+          distanciaPor = ruta.metodo;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[POST /api/ordenes] geocoder no disponible:', err.message);
+  }
+
+  // Fallback: km cargados a mano si la geocodificación no resolvió
+  if (distanciaKm == null && tieneDistancia) {
+    distanciaKm  = Number(body.distancia_km);
+    distanciaPor = 'manual';
+  }
+
+  if (distanciaKm == null && !body.precio) {
+    return res.status(422).json({
+      error: 'No pudimos calcular la distancia con esas direcciones. Revisá calle y número, o cargá los km a mano.',
+    });
   }
 
   // ── Cálculo financiero EN BACKEND (no se confía en montos del frontend) ──
@@ -88,10 +145,10 @@ router.post('/', async (req, res) => {
   const r2 = (n) => Math.round(n * 100) / 100;
 
   let desglose;
-  if (tieneDistancia) {
+  if (distanciaKm != null) {
     desglose = calcularPrecio({
       tipo: esComercio ? 'comercio' : 'particular',
-      distancia_km: Number(body.distancia_km),
+      distancia_km: distanciaKm,
       propina_cadete: propina,
       metodo_pago: metodoPago,
       config,
@@ -158,9 +215,15 @@ router.post('/', async (req, res) => {
     monto_a_depositar_cadete: desglose.monto_a_depositar_cadete,
     precio_calculado_en:      new Date().toISOString(),
 
-    // GPS origen (opcional, mejora el matching)
-    origen_lat: body.origen_lat ?? null,
-    origen_lng: body.origen_lng ?? null,
+    // GPS: origen mejora el matching, destino alimenta el tracking en mapa.
+    // Prioridad: GPS real del dispositivo si vino Y es razonable (caja
+    // Argentina); si no, lo geocodificado por el backend.
+    origen_lat:  (coordsValidas(Number(body.origen_lat), Number(body.origen_lng)) ? Number(body.origen_lat) : null) ?? geoOrigen?.lat ?? null,
+    origen_lng:  (coordsValidas(Number(body.origen_lat), Number(body.origen_lng)) ? Number(body.origen_lng) : null) ?? geoOrigen?.lng ?? null,
+    destino_lat: geoDestino?.lat ?? null,
+    destino_lng: geoDestino?.lng ?? null,
+    distancia_calculada_en:  distanciaKm != null ? new Date().toISOString() : null,
+    distancia_calculada_por: distanciaPor,
 
     rechazos: [],
   };
@@ -171,16 +234,20 @@ router.post('/', async (req, res) => {
     .select()
     .single();
 
-  // Migración 004 sin aplicar: reintentar sin las columnas financieras nuevas
-  if (errorInsert && /Could not find|does not exist/i.test(errorInsert.message)) {
-    console.warn('[POST /api/ordenes] columnas 004 ausentes, insert básico:', errorInsert.message);
-    const camposNuevos = [
-      'distancia_km', 'precio_base', 'km_incluidos', 'precio_km_extra',
-      'recargo_clima_feriado', 'propina_cadete', 'precio_envio', 'total_cliente',
-      'total_cadete', 'efectivo_a_rendir', 'monto_a_depositar_cadete', 'precio_calculado_en',
-    ];
-    const base = { ...ordenData };
-    camposNuevos.forEach((c) => delete base[c]);
+  // Migraciones sin aplicar: reintentar quitando columnas nuevas en cascada
+  // (primero las de la 005, después las financieras de la 004).
+  const esErrorColumna = (e) => e && /Could not find|does not exist/i.test(e.message);
+  const campos005 = ['destino_lat', 'destino_lng', 'distancia_calculada_en', 'distancia_calculada_por'];
+  const campos004 = [
+    'distancia_km', 'precio_base', 'km_incluidos', 'precio_km_extra',
+    'recargo_clima_feriado', 'propina_cadete', 'precio_envio', 'total_cliente',
+    'total_cadete', 'efectivo_a_rendir', 'monto_a_depositar_cadete', 'precio_calculado_en',
+  ];
+  let base = { ...ordenData };
+  for (const grupo of [campos005, campos004]) {
+    if (!esErrorColumna(errorInsert)) break;
+    console.warn('[POST /api/ordenes] columnas ausentes, reintento sin', grupo[0], '...:', errorInsert.message);
+    grupo.forEach((c) => delete base[c]);
     ({ data: orden, error: errorInsert } = await supabase
       .from('ordenes')
       .insert(base)
@@ -262,14 +329,11 @@ router.get('/', async (req, res) => {
       }
       query = query.eq('solicitante_id', req.user.id);
     } else if (req.perfil?.rol === 'cadete') {
-      const { data: cadete } = await supabase
-        .from('cadetes')
-        .select('zona')
-        .eq('id', req.user.id)
-        .single();
-      const zonaCadete = cadete?.zona || '';
+      // Ve: sus pedidos, los asignados a él y TODOS los broadcasts pendientes
+      // (la zona es preferencia del matching, no un muro: en una ciudad chica
+      // cualquier cadete activo puede tomar un pedido en cola).
       query = query.or(
-        `cadete_id.eq.${req.user.id},asignado_a_id.eq.${req.user.id},and(estado.eq.pendiente,broadcast_en.not.is.null,zona.eq.${zonaCadete})`
+        `cadete_id.eq.${req.user.id},asignado_a_id.eq.${req.user.id},and(estado.eq.pendiente,broadcast_en.not.is.null)`
       );
     } else {
       return res.status(403).json({ error: 'Rol no autorizado' });
@@ -336,9 +400,10 @@ router.patch('/:id/aceptar', requireRole('cadete', 'admin'), async (req, res) =>
     return res.status(403).json({ error: 'Cadete no disponible para aceptar pedidos' });
   }
 
+  // Broadcast: cualquier cadete activo puede tomarlo (la zona no bloquea),
+  // salvo que ya lo haya rechazado antes.
   const esAsignado  = orden.asignado_a_id === cadete_id;
   const esBroadcast = Boolean(orden.broadcast_en)
-    && orden.zona === cadete.zona
     && !orden.rechazos?.includes(cadete_id);
 
   if (!esAsignado && !esBroadcast) {

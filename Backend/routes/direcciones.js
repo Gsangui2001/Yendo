@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { supabase } from '../lib/supabaseAdmin.js';
 import { authenticate, isAdmin, requireRole } from '../middleware/auth.js';
+import { coordsParaInsert } from '../lib/ubicaciones.js';
 
 const router = Router();
 router.use(authenticate);
@@ -17,15 +18,27 @@ router.post('/', requireRole('privado', 'admin'), async (req, res) => {
     return res.status(403).json({ error: 'No podes crear direcciones para otro usuario' });
   }
 
-  const { data, error } = await supabase
+  // Geocodificar la dirección UNA vez al guardar: cuando el usuario la elija
+  // como origen/destino, el presupuesto usa estas coordenadas directo.
+  const direccionData = {
+    usuario_id: userId,
+    nombre: nombre.trim(),       // etiqueta: casa, trabajo, etc.
+    direccion: direccion.trim(),
+    ...(await coordsParaInsert(direccion)),
+  };
+
+  let { data, error } = await supabase
     .from('direcciones')
-    .insert({
-      usuario_id: userId,
-      nombre: nombre.trim(),
-      direccion: direccion.trim(),
-    })
+    .insert(direccionData)
     .select()
     .single();
+
+  // Migración 006 sin aplicar: reintentar sin lat/lng
+  if (error && /Could not find|does not exist/i.test(error.message)) {
+    delete direccionData.lat;
+    delete direccionData.lng;
+    ({ data, error } = await supabase.from('direcciones').insert(direccionData).select().single());
+  }
 
   if (error) {
     console.error('[POST /api/direcciones]', error.message);

@@ -69,6 +69,24 @@ export default function AdminApp({ perfil, page, setPage }) {
       cargarOrdenes();
     }
   }
+  // Designar un cadete a mano (pedidos en espera o reasignación)
+  async function asignarCadete(ordenId, cadeteId) {
+    if (!cadeteId) return;
+    try {
+      const res = await apiFetch(`/api/admin/ordenes/${ordenId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ cadete_id: cadeteId }),
+      });
+      if (!res.ok) { toast.error(await readApiError(res)); return; }
+      toast.success('Cadete asignado al pedido');
+    } catch {
+      toast.error('No se pudo asignar el cadete. Revisá tu conexión.');
+    } finally {
+      cargarOrdenes();
+      cargarCadetes();
+    }
+  }
+
   async function cambiarEstadoCadete(id, estado) {
     try {
       const res = await apiFetch(`/api/admin/cadetes/${id}`, {
@@ -319,6 +337,7 @@ export default function AdminApp({ perfil, page, setPage }) {
                 <th className="text-left px-4 py-3 text-xs text-gray-400 font-semibold uppercase hidden sm:table-cell">Zona</th>
                 <th className="text-left px-4 py-3 text-xs text-gray-400 font-semibold uppercase">Precio</th>
                 <th className="text-left px-4 py-3 text-xs text-gray-400 font-semibold uppercase">Estado</th>
+                <th className="text-left px-4 py-3 text-xs text-gray-400 font-semibold uppercase">Cadete</th>
               </tr>
             </thead>
             <tbody>
@@ -332,6 +351,13 @@ export default function AdminApp({ perfil, page, setPage }) {
                       className={`text-xs px-2 py-1 rounded-full font-semibold border-0 cursor-pointer ${ESTADO_CHIP[o.estado]}`}>
                       {Object.entries(ESTADO_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                     </select>
+                  </td>
+                  <td className="px-4 py-3">
+                    {o.cadete_id
+                      ? <span className="text-sm font-medium text-gray-700">{cadetes.find(c => c.id === o.cadete_id)?.nombre ?? '—'}</span>
+                      : o.estado === 'pendiente'
+                        ? <SelectAsignar cadetes={cadetes} onAsignar={id => asignarCadete(o.id, id)} />
+                        : <span className="text-xs text-gray-300">—</span>}
                   </td>
                 </tr>
               ))}
@@ -358,12 +384,15 @@ export default function AdminApp({ perfil, page, setPage }) {
           <p className="font-bold text-red-700 mb-2">⚠️ {pendientes.length} pedido{pendientes.length > 1 ? 's' : ''} sin cadete</p>
           <div className="space-y-2">
             {pendientes.slice(0, 3).map(o => (
-              <div key={o.id} className="bg-white rounded-xl p-3 flex justify-between items-center">
+              <div key={o.id} className="bg-white rounded-xl p-3 flex flex-wrap justify-between items-center gap-2">
                 <div>
                   <p className="text-sm font-semibold">{o.cliente_nombre ?? 'Particular'}</p>
                   <p className="text-xs text-gray-400">{o.zona_label ?? o.descripcion ?? '—'} · ${(o.precio ?? 0).toLocaleString('es-AR')}</p>
                 </div>
-                <p className="text-xs text-gray-400">{Math.floor((Date.now() - new Date(o.creado_en)) / 60000)} min</p>
+                <div className="flex items-center gap-3">
+                  <SelectAsignar cadetes={cadetes} onAsignar={id => asignarCadete(o.id, id)} />
+                  <p className="text-xs text-gray-400">{Math.floor((Date.now() - new Date(o.creado_en)) / 60000)} min</p>
+                </div>
               </div>
             ))}
           </div>
@@ -1294,6 +1323,30 @@ function Avatar({ nombre }) {
   const initials = (nombre ?? 'U').split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase();
   return <div className="w-9 h-9 rounded-full bg-gradient-to-br from-green-500 to-green-700 text-white flex items-center justify-center font-bold text-xs flex-shrink-0 shadow-sm">{initials}</div>;
 }
+// Select para designar cadete a mano en pedidos en espera.
+// Ordena: disponibles primero, después en viaje, al final offline.
+function SelectAsignar({ cadetes, onAsignar }) {
+  const ORDEN_ESTADO = { disponible: 0, en_viaje: 1, offline: 2 };
+  const asignables = (cadetes ?? [])
+    .filter(c => c.activo !== false)
+    .sort((a, b) => (ORDEN_ESTADO[a.estado] ?? 3) - (ORDEN_ESTADO[b.estado] ?? 3));
+  if (!asignables.length) return <span className="text-xs text-gray-300">Sin cadetes</span>;
+  return (
+    <select
+      defaultValue=""
+      onChange={e => { onAsignar(e.target.value); e.target.value = ''; }}
+      className="text-xs px-2 py-1.5 rounded-lg border border-green-200 bg-green-50 font-semibold text-green-700 cursor-pointer"
+    >
+      <option value="" disabled>Asignar a...</option>
+      {asignables.map(c => (
+        <option key={c.id} value={c.id}>
+          {c.nombre} {c.estado === 'disponible' ? '· libre' : c.estado === 'en_viaje' ? '· en viaje' : '· offline'}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 function MiniStat({ label, value }) {
   return (
     <div className="bg-gray-50 rounded-xl p-3 text-center hover:bg-gray-100 transition-colors cursor-default">

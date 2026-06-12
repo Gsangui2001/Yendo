@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { supabase } from '../lib/supabaseAdmin.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
+import { coordsParaInsert } from '../lib/ubicaciones.js';
 
 const router = Router();
 router.use(authenticate, requireRole('admin'));
@@ -10,9 +11,54 @@ const ESTADOS_CADETE  = ['disponible', 'en_viaje', 'offline'];
 const PLANES_COMERCIO = ['sin_plan', 'diario', 'mensual', 'anual'];
 
 // ── PATCH /api/admin/ordenes/:id ──────────────────────────────────────────────
+// Acepta { estado } para cambiar estado y/o { cadete_id } para designar un
+// cadete a mano (pedidos en espera o reasignación).
 router.patch('/ordenes/:id', async (req, res) => {
-  const { id }     = req.params;
-  const { estado } = req.body;
+  const { id }               = req.params;
+  const { estado, cadete_id } = req.body;
+
+  // Asignación manual de cadete
+  if (cadete_id) {
+    const { data: cadete, error: errCadete } = await supabase
+      .from('cadetes')
+      .select('id, nombre, activo')
+      .eq('id', cadete_id)
+      .single();
+    if (errCadete || !cadete || !cadete.activo) {
+      return res.status(400).json({ error: 'Cadete no válido o inactivo' });
+    }
+
+    const { data: orden, error: errOrden } = await supabase
+      .from('ordenes')
+      .select('id, estado')
+      .eq('id', id)
+      .single();
+    if (errOrden || !orden) return res.status(404).json({ error: 'Orden no encontrada' });
+    if (!['pendiente', 'asignada'].includes(orden.estado)) {
+      return res.status(409).json({ error: `La orden ya está ${orden.estado}, no se puede reasignar` });
+    }
+
+    const { data: actualizada, error: errUpdate } = await supabase
+      .from('ordenes')
+      .update({
+        estado:        'asignada',
+        cadete_id,
+        asignado_a_id: null,
+        broadcast_en:  null,
+        asignada_en:   new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (errUpdate) {
+      console.error('[PATCH /api/admin/ordenes/:id] asignar:', errUpdate.message);
+      return res.status(500).json({ error: 'No se pudo asignar el cadete' });
+    }
+
+    await supabase.from('cadetes').update({ estado: 'en_viaje' }).eq('id', cadete_id);
+    return res.json(actualizada);
+  }
 
   if (!estado || !ESTADOS_ORDEN.includes(estado)) {
     return res.status(400).json({ error: `estado inválido. Valores: ${ESTADOS_ORDEN.join(', ')}` });
@@ -81,11 +127,33 @@ router.patch('/cadetes/:id', async (req, res) => {
   return res.json(data);
 });
 
+// Si cambia la dirección del comercio, recalcular lat/lng (o limpiarlas si
+// quedó vacía / no se pudo geocodificar: mejor sin coordenadas que con unas
+// viejas que cotizan mal).
+async function conCoordsRecalculadas(updateData, direccion) {
+  if (direccion === undefined) return updateData;
+  const nueva = direccion?.trim() || null;
+  const coords = nueva ? await coordsParaInsert(nueva) : {};
+  return { ...updateData, direccion: nueva, lat: coords.lat ?? null, lng: coords.lng ?? null };
+}
+
+// Migración 006 sin aplicar: reintentar el update sin lat/lng
+async function actualizarComercio(filtro, updateData) {
+  let { data, error } = await supabase.from('comercios').update(updateData).match(filtro).select().single();
+  if (error && /Could not find|does not exist/i.test(error.message)) {
+    const base = { ...updateData };
+    delete base.lat;
+    delete base.lng;
+    ({ data, error } = await supabase.from('comercios').update(base).match(filtro).select().single());
+  }
+  return { data, error };
+}
+
 // ── PATCH /api/admin/comercios/:id ───────────────────────────────────────────
 router.patch('/comercios/:id', async (req, res) => {
   const { id } = req.params;
   const { plan, activo, telefono, direccion, categoria } = req.body;
-  const updateData = {};
+  let updateData = {};
 
   if (plan !== undefined) {
     if (!PLANES_COMERCIO.includes(plan)) {
@@ -95,19 +163,14 @@ router.patch('/comercios/:id', async (req, res) => {
   }
   if (activo !== undefined) updateData.activo = Boolean(activo);
   if (telefono !== undefined) updateData.telefono = telefono?.trim() || null;
-  if (direccion !== undefined) updateData.direccion = direccion?.trim() || null;
   if (categoria !== undefined) updateData.categoria = categoria || null;
+  updateData = await conCoordsRecalculadas(updateData, direccion);
 
   if (!Object.keys(updateData).length) {
     return res.status(400).json({ error: 'No hay cambios para aplicar' });
   }
 
-  const { data, error } = await supabase
-    .from('comercios')
-    .update(updateData)
-    .eq('id', id)
-    .select()
-    .single();
+  const { data, error } = await actualizarComercio({ id }, updateData);
 
   if (error) {
     console.error('[PATCH /api/admin/comercios/:id]', error.message);
@@ -120,7 +183,7 @@ router.patch('/comercios/:id', async (req, res) => {
 router.patch('/comercios/owner/:ownerId', async (req, res) => {
   const { ownerId } = req.params;
   const { plan, telefono, direccion, categoria } = req.body;
-  const updateData = {};
+  let updateData = {};
 
   if (plan !== undefined) {
     if (!PLANES_COMERCIO.includes(plan)) {
@@ -129,15 +192,10 @@ router.patch('/comercios/owner/:ownerId', async (req, res) => {
     updateData.plan = plan;
   }
   if (telefono !== undefined) updateData.telefono = telefono?.trim() || null;
-  if (direccion !== undefined) updateData.direccion = direccion?.trim() || null;
   if (categoria !== undefined) updateData.categoria = categoria || null;
+  updateData = await conCoordsRecalculadas(updateData, direccion);
 
-  const { data, error } = await supabase
-    .from('comercios')
-    .update(updateData)
-    .eq('owner_id', ownerId)
-    .select()
-    .single();
+  const { data, error } = await actualizarComercio({ owner_id: ownerId }, updateData);
 
   if (error) {
     console.error('[PATCH /api/admin/comercios/owner/:ownerId]', error.message);

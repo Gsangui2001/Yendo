@@ -5,7 +5,8 @@ import { Icon } from '../ui/Icon';
 
 const LAST_ZONA_KEY = 'yendo_ultima_zona';
 
-export default function Pedido({ comercioId, onSuccess }) {
+export default function Pedido({ comercioId, comercio, onSuccess }) {
+  const direccionComercio = comercio?.direccion?.trim() || '';
   const [clientes,  setClientes]  = useState([]);
   const [zonas,     setZonas]     = useState([]);
   const [loading,   setLoading]   = useState(false);
@@ -22,6 +23,8 @@ export default function Pedido({ comercioId, onSuccess }) {
     metodoPago:  'efectivo',
   });
   const [cotizacion, setCotizacion] = useState(null);
+  const [cotizando,  setCotizando]  = useState(false);
+  const [geoError,   setGeoError]   = useState(null); // dirección no encontrada → fallback km manual
 
   const [nuevoCliente, setNuevoCliente] = useState({
     nombre: '', telefono: '', direccion: '', zona: '',
@@ -35,29 +38,68 @@ export default function Pedido({ comercioId, onSuccess }) {
     cargarZonas();
   }, [comercioId]);
 
-  // Cotización en vivo: el backend decide los montos (precio por km,
-  // recargo lluvia/feriado, reparto 82/18 y propina).
+  // Cotización en vivo POR DIRECCIÓN: el backend geocodifica desde la
+  // dirección del comercio hasta la de entrega, calcula la distancia de ruta
+  // y decide todos los montos. Si la dirección no se encuentra, se habilita
+  // el fallback de km a mano (que también cotiza en el backend).
   useEffect(() => {
-    const km = Number(form.distanciaKm);
-    if (!Number.isFinite(km) || km <= 0) { setCotizacion(null); return; }
+    const direccion = form.direccion.trim();
+    const kmManual  = Number(form.distanciaKm);
+    if (direccion.length < 5 && !(kmManual > 0)) {
+      setCotizacion(null); setGeoError(null); setCotizando(false);
+      return;
+    }
+    let activo = true;
+    setCotizando(true);
     const t = setTimeout(async () => {
       try {
-        const res = await apiFetch('/api/precios/cotizar', {
-          method: 'POST',
-          body: JSON.stringify({
-            tipo: 'comercio',
-            distancia_km: km,
-            propina_cadete: Number(form.propina) || 0,
-            metodo_pago: form.metodoPago,
-          }),
-        });
-        setCotizacion(res.ok ? await res.json() : null);
+        if (direccion.length >= 5) {
+          const res  = await apiFetch('/api/precios/cotizar-direcciones', {
+            method: 'POST',
+            body: JSON.stringify({
+              tipo: 'comercio',
+              comercio_id: comercioId,
+              // Si la dirección es la del cliente guardado, el backend usa
+              // sus coordenadas persistidas (presupuesto instantáneo)
+              cliente_id: form.clienteId || undefined,
+              destino: direccion,
+              propina_cadete: Number(form.propina) || 0,
+              metodo_pago: form.metodoPago,
+            }),
+          });
+          const data = await res.json().catch(() => null);
+          if (!activo) return;
+          if (res.ok && data) {
+            setCotizacion(data);
+            setGeoError(null);
+            return;
+          }
+          setGeoError(data?.error ?? 'No pudimos calcular la distancia para esa dirección.');
+        }
+        // Fallback: cotizar con los km cargados a mano
+        if (kmManual > 0) {
+          const res = await apiFetch('/api/precios/cotizar', {
+            method: 'POST',
+            body: JSON.stringify({
+              tipo: 'comercio',
+              distancia_km: kmManual,
+              propina_cadete: Number(form.propina) || 0,
+              metodo_pago: form.metodoPago,
+            }),
+          });
+          if (!activo) return;
+          setCotizacion(res.ok ? await res.json() : null);
+        } else if (activo) {
+          setCotizacion(null);
+        }
       } catch {
-        setCotizacion(null);
+        if (activo) { setCotizacion(null); setGeoError('No pudimos cotizar. Revisá tu conexión.'); }
+      } finally {
+        if (activo) setCotizando(false);
       }
-    }, 350);
-    return () => clearTimeout(t);
-  }, [form.distanciaKm, form.propina, form.metodoPago]);
+    }, 700);
+    return () => { activo = false; clearTimeout(t); };
+  }, [form.direccion, form.distanciaKm, form.propina, form.metodoPago, form.clienteId, comercioId]);
 
   async function cargarClientes() {
     const { data } = await supabase
@@ -138,8 +180,11 @@ export default function Pedido({ comercioId, onSuccess }) {
     setLoading(true);
     try {
       const cliente = clientes.find(c => c.id === form.clienteId);
-      const km = Number(form.distanciaKm);
-      // Pasar por el backend: él calcula precio, reparto y liquidación.
+      // El backend geocodifica las direcciones y recalcula distancia y precio.
+      // Los km solo viajan como fallback por si el geocoder no responde.
+      const kmFallback = Number(cotizacion?.distancia_km) > 0
+        ? Number(cotizacion.distancia_km)
+        : (Number(form.distanciaKm) > 0 ? Number(form.distanciaKm) : undefined);
       const res = await apiFetch('/api/ordenes', {
         method:  'POST',
         body:    JSON.stringify({
@@ -149,11 +194,11 @@ export default function Pedido({ comercioId, onSuccess }) {
           direccion:      form.direccion,
           zona:           form.zona,
           zona_label:     zonaData?.label,
-          distancia_km:   km > 0 ? km : undefined,
+          distancia_km:   kmFallback,
           propina_cadete: Number(form.propina) || 0,
           metodo_pago:    form.metodoPago,
-          // Legacy: si no cargaron distancia, va el precio de zona
-          precio:         km > 0 ? undefined : (zonaData?.precio ?? 0),
+          // Último recurso: si no hay km ni dirección geocodificable, precio de zona
+          precio:         kmFallback ? undefined : (zonaData?.precio ?? 0),
         }),
       });
       const data = await res.json();
@@ -252,10 +297,29 @@ export default function Pedido({ comercioId, onSuccess }) {
             </div>
           )}
 
+          {/* Origen: dirección registrada del comercio (solo lectura) */}
+          <Field label="Origen — dirección del comercio">
+            {direccionComercio ? (
+              <div className="flex items-center gap-2 rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 text-sm text-gray-600">
+                <Icon name="store" className="h-4 w-4 shrink-0 text-green-600" />
+                <span className="truncate">{direccionComercio}</span>
+              </div>
+            ) : (
+              <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
+                Completá la dirección del comercio para cotizar automático.
+              </p>
+            )}
+          </Field>
+
           {/* Dirección */}
           <Field label="Dirección de entrega" required error={errors.direccion}>
             <input type="text" value={form.direccion} onChange={e => { setForm(p => ({...p, direccion: e.target.value})); clearErrors('direccion'); }}
-              placeholder="Calle y número" className={inputCls(errors.direccion)} />
+              placeholder="Calle y número (ej: San Martín 441)" className={inputCls(errors.direccion)} />
+            {geoError && (
+              <p className="mt-1.5 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
+                {geoError} Mientras tanto podés cargar los km a mano.
+              </p>
+            )}
           </Field>
 
           {/* Zona */}
@@ -267,13 +331,15 @@ export default function Pedido({ comercioId, onSuccess }) {
             </select>
           </Field>
 
-          {/* Distancia, pago y propina */}
-          <div className="grid gap-3 sm:grid-cols-3">
-            <Field label="Distancia (km)">
-              <input type="number" min="0.5" step="0.5" inputMode="decimal" value={form.distanciaKm}
-                onChange={e => setForm(p => ({ ...p, distanciaKm: e.target.value }))}
-                placeholder="Ej: 8" className={inputCls()} />
-            </Field>
+          {/* Pago, propina y (solo como fallback) distancia manual */}
+          <div className={`grid gap-3 ${geoError ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
+            {geoError && (
+              <Field label="Distancia (km)">
+                <input type="number" min="0.5" step="0.5" inputMode="decimal" value={form.distanciaKm}
+                  onChange={e => setForm(p => ({ ...p, distanciaKm: e.target.value }))}
+                  placeholder="Ej: 8" className={inputCls()} />
+              </Field>
+            )}
             <Field label="Método de pago">
               <select value={form.metodoPago} onChange={e => setForm(p => ({ ...p, metodoPago: e.target.value }))} className={inputCls()}>
                 <option value="efectivo">Efectivo</option>
@@ -287,7 +353,7 @@ export default function Pedido({ comercioId, onSuccess }) {
                 placeholder="$0" className={inputCls()} />
             </Field>
           </div>
-          <p className="-mt-2 text-xs text-gray-400">Tarifa comercio: $3.000 hasta 5 km · $700 por km extra. La propina es 100% para el cadete.</p>
+          <p className="-mt-2 text-xs text-gray-400">Tarifa comercio: $3.000 hasta 5 km · $700 por km extra. La distancia se calcula sola desde tu local hasta la entrega. La propina es 100% para el cadete.</p>
         </div>
 
         <aside className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm lg:sticky lg:top-6 lg:self-start">
@@ -307,7 +373,10 @@ export default function Pedido({ comercioId, onSuccess }) {
             </p>
             {cotizacion && (
               <div className="mt-2 space-y-1 border-t border-green-200 pt-2 text-xs text-green-800">
-                <div className="flex justify-between"><span>Envío ({cotizacion.distancia_km} km)</span><strong>${cotizacion.precio_envio.toLocaleString('es-AR')}</strong></div>
+                <div className="flex justify-between">
+                  <span>Envío ({cotizacion.distancia_km} km{cotizacion.metodo_distancia === 'osrm' ? ' · ruta real' : cotizacion.metodo_distancia === 'haversine' ? ' · estimada' : ''})</span>
+                  <strong>${cotizacion.precio_envio.toLocaleString('es-AR')}</strong>
+                </div>
                 {cotizacion.recargo_clima_feriado > 0 && (
                   <div className="flex justify-between">
                     <span>Incluye recargo {cotizacion.recargos_activos?.lluvia ? 'por lluvia' : 'por feriado'}</span>
@@ -320,7 +389,11 @@ export default function Pedido({ comercioId, onSuccess }) {
               </div>
             )}
             <p className="mt-1 text-xs text-green-700">
-              {cotizacion ? 'Cotizado por Yendo según distancia.' : 'Ingresá la distancia en km para cotizar.'}
+              {cotizando
+                ? 'Calculando distancia...'
+                : cotizacion
+                  ? 'Cotizado por Yendo según la distancia calculada.'
+                  : 'Ingresá la dirección de entrega para cotizar automático.'}
             </p>
           </div>
 

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { supabase } from '../lib/supabaseAdmin.js';
 import { authenticate, isAdmin, requireRole } from '../middleware/auth.js';
+import { coordsParaInsert } from '../lib/ubicaciones.js';
 
 const router = Router();
 router.use(authenticate);
@@ -29,17 +30,29 @@ router.post('/', requireRole('comercio', 'admin'), async (req, res) => {
     return res.status(403).json({ error: 'No podes crear clientes para este comercio' });
   }
 
-  const { data, error } = await supabase
+  // Geocodificar la dirección UNA vez al guardar: las próximas cotizaciones
+  // usan estas coordenadas sin pasar por el geocoder.
+  const clienteData = {
+    comercio_id,
+    nombre: nombre.trim(),
+    telefono: telefono?.trim() || null,
+    direccion: direccion?.trim() || null,
+    zona: zona || null,
+    ...(await coordsParaInsert(direccion)),
+  };
+
+  let { data, error } = await supabase
     .from('clientes')
-    .insert({
-      comercio_id,
-      nombre: nombre.trim(),
-      telefono: telefono?.trim() || null,
-      direccion: direccion?.trim() || null,
-      zona: zona || null,
-    })
+    .insert(clienteData)
     .select()
     .single();
+
+  // Migración 006 sin aplicar: reintentar sin lat/lng
+  if (error && /Could not find|does not exist/i.test(error.message)) {
+    delete clienteData.lat;
+    delete clienteData.lng;
+    ({ data, error } = await supabase.from('clientes').insert(clienteData).select().single());
+  }
 
   if (error) {
     console.error('[POST /api/clientes]', error.message);

@@ -73,45 +73,50 @@ export function AssignmentModal({ cadete, onAceptar }) {
     }, 1000);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Suscripción Realtime: escucha asignaciones directas y broadcast
+  // Ofertas: Realtime como vía rápida + POLLING cada 12s como respaldo.
+  // El polling va por el backend (service key), así no depende de que
+  // Realtime esté emitiendo ni de las policies RLS del cliente.
   useEffect(() => {
     if (!cadete?.id) return;
 
-    // Buscar si ya hay una orden esperando al arrancar
     async function buscarOrdenPendiente() {
-      const { data } = await supabase
-        .from('ordenes')
-        .select('*')
-        .eq('estado', 'pendiente')
-        .or(`asignado_a_id.eq.${cadete.id},broadcast_en.not.is.null`)
-        .order('creado_en', { ascending: true })
-        .limit(20);
+      try {
+        // El backend ya devuelve para un cadete: sus órdenes, las asignadas
+        // a él y todos los broadcasts pendientes.
+        const res = await apiFetch('/api/ordenes');
+        if (!res.ok) return;
+        const data = await res.json();
 
-      const pendiente = (data ?? []).find((orden) => {
-        const esMia = orden.asignado_a_id === cadete.id;
-        const esBroadcast = Boolean(orden.broadcast_en);
-        const rechazos = orden.rechazos ?? [];
-        const yoRechace = rechazos.includes(cadete.id);
-        return !yoRechace && (esMia || (esBroadcast && orden.zona === cadete.zona));
-      });
+        const pendiente = (Array.isArray(data) ? data : [])
+          .filter((orden) => {
+            if (orden.estado !== 'pendiente') return false;
+            const esMia       = orden.asignado_a_id === cadete.id;
+            const esBroadcast = Boolean(orden.broadcast_en);
+            const yoRechace   = (orden.rechazos ?? []).includes(cadete.id);
+            return !yoRechace && (esMia || esBroadcast);
+          })
+          .sort((a, b) => new Date(a.creado_en) - new Date(b.creado_en))[0];
 
-      if (pendiente) mostrarPedido(pendiente);
+        if (pendiente) mostrarPedido(pendiente);
+      } catch {
+        // sin conexión: el próximo poll reintenta
+      }
     }
     buscarOrdenPendiente();
+    const poll = setInterval(buscarOrdenPendiente, 12000);
 
-    // Escuchar cambios en ordenes en tiempo real
+    // Escuchar cambios en ordenes en tiempo real (vía rápida)
     const channel = supabase
       .channel(`assignment-${cadete.id}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'ordenes' },
-        ({ eventType, new: nueva, old: vieja }) => {
+        ({ eventType, new: nueva }) => {
           if (eventType === 'DELETE') return;
 
           const esMia      = nueva.asignado_a_id === cadete.id;
           const esBroadcast = Boolean(nueva.broadcast_en);
-          const rechazos   = nueva.rechazos ?? [];
-          const yoRechace  = rechazos.includes(cadete.id);
+          const yoRechace  = (nueva.rechazos ?? []).includes(cadete.id);
 
           // Si la orden ya no está pendiente, limpiar
           if (nueva.estado !== 'pendiente') {
@@ -120,14 +125,9 @@ export function AssignmentModal({ cadete, onAceptar }) {
             return;
           }
 
-          // Asignación directa a este cadete
-          if (esMia && !yoRechace) {
-            mostrarPedido(nueva);
-            return;
-          }
-
-          // Broadcast — todos en la zona la ven (excepto quienes rechazaron)
-          if (esBroadcast && !yoRechace && nueva.zona === cadete.zona) {
+          // Asignación directa o broadcast: la zona no bloquea (es solo
+          // preferencia del matching), cualquier cadete activo puede tomarlo.
+          if ((esMia || esBroadcast) && !yoRechace) {
             mostrarPedido(nueva);
           }
         }
@@ -135,10 +135,11 @@ export function AssignmentModal({ cadete, onAceptar }) {
       .subscribe();
 
     return () => {
+      clearInterval(poll);
       supabase.removeChannel(channel);
       clearInterval(timerRef.current);
     };
-  }, [cadete?.id, cadete?.zona, mostrarPedido, limpiar]);
+  }, [cadete?.id, mostrarPedido, limpiar]);
 
   const pedidoRef = useRef(pedido);
   useEffect(() => { pedidoRef.current = pedido; }, [pedido]);
@@ -230,12 +231,18 @@ export function AssignmentModal({ cadete, onAceptar }) {
                 <span className="text-gray-600">{pedido.zona_label}</span>
               </div>
             )}
+            {Number(pedido.distancia_km) > 0 && (
+              <div className="flex items-start gap-2">
+                <Icon name="navigate" className="w-4 h-4 mt-0.5 shrink-0 text-gray-400" />
+                <span className="text-gray-600">{pedido.distancia_km} km</span>
+              </div>
+            )}
             <div className="flex items-start gap-2">
               <Icon name="money" className="w-4 h-4 mt-0.5 shrink-0 text-gray-400" />
               <span className="text-gray-700 font-semibold">
                 ${pedido.precio?.toLocaleString('es-AR') ?? '—'}
                 <span className="text-green-600 ml-1 text-xs font-normal">
-                  (vos: ${Math.round((pedido.precio ?? 0) * 0.82).toLocaleString('es-AR')})
+                  (vos: ${Math.round(Number(pedido.total_cadete ?? (pedido.precio ?? 0) * 0.82)).toLocaleString('es-AR')}{Number(pedido.propina_cadete) > 0 ? ' con propina' : ''})
                 </span>
               </span>
             </div>
