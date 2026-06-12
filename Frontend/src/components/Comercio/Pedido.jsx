@@ -69,6 +69,9 @@ export default function Pedido({ comercioId, comercio, onSuccess }) {
             setGeoError(null);
             return;
           }
+          // Sesión vencida: apiFetch ya redirige al login — no habilitar
+          // el fallback de km manual como si fuera un problema de dirección
+          if (res.status === 401) return;
           setGeoError(data?.error ?? 'No pudimos calcular la distancia para esa dirección.');
         }
         // Fallback: cotizar con los km cargados a mano
@@ -181,9 +184,10 @@ export default function Pedido({ comercioId, comercio, onSuccess }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error ?? data?.errores?.join(', '));
 
+      const codigo = data.codigo_entrega ? ` Código de entrega: ${data.codigo_entrega}.` : '';
       const msg = data.sin_cadetes
-        ? `Sin cadetes disponibles. Espera aprox. ${data.espera_minutos} min — el pedido quedó en cola`
-        : '¡Pedido enviado! Buscando cadete...';
+        ? `Sin cadetes disponibles. Espera aprox. ${data.espera_minutos} min — el pedido quedó en cola.${codigo}`
+        : `¡Pedido enviado! Buscando cadete...${codigo}`;
       showToast(msg, data.sin_cadetes ? 'warn' : 'success');
       setForm(prev => ({ ...prev, clienteId: '', direccion: '' }));
       setErrors({});

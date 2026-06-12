@@ -541,6 +541,17 @@ function PedidoActivo({ orden, cadete }) {
               : <p className="text-xs text-gray-400">Sin asignar</p>}
           </div>
         </div>
+
+        {/* Código de entrega: dárselo al cadete recién cuando entrega */}
+        {orden.codigo_entrega && orden.estado !== 'entregada' && (
+          <div className="mt-3 flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 p-3">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wide text-amber-700">Código de entrega</p>
+              <p className="text-[11px] text-amber-600">Dáselo al cadete cuando recibas el pedido</p>
+            </div>
+            <p className="text-2xl font-extrabold tracking-[0.25em] text-amber-700">{orden.codigo_entrega}</p>
+          </div>
+        )}
       </div>
 
       <div className="space-y-2">

@@ -105,6 +105,9 @@ export default function SolicitarCadete({ usuarioId, onPedidoCreado }) {
             setGeoError(null);
             return;
           }
+          // Sesión vencida: apiFetch ya redirige al login — no habilitar
+          // el fallback de km manual como si fuera un problema de dirección
+          if (res.status === 401) return;
           setGeoError(data?.error ?? 'No pudimos calcular la distancia con esas direcciones.');
         }
         // Fallback: cotizar con los km cargados a mano

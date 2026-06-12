@@ -64,7 +64,10 @@ export default function CadeteApp({ perfil, page }) {
           setOrdenActiva(null);
           cargarDatos();
         } else {
-          setOrdenActiva(upd);
+          // El payload de realtime trae la fila completa: el código de
+          // entrega no es para el cadete, se descarta acá.
+          const { codigo_entrega, ...limpia } = upd;
+          setOrdenActiva(limpia);
         }
       })
       .subscribe();
@@ -73,16 +76,22 @@ export default function CadeteApp({ perfil, page }) {
 
   async function cargarDatos() {
     setLoading(true);
-    const [{ data: cad }, { data: activa }, { data: ords }] = await Promise.all([
+    // Las órdenes van por el BACKEND: ahí se filtra el código de entrega
+    // (el cadete no lo ve nunca; se lo da el cliente en mano al recibir).
+    const [{ data: cad }, resOrdenes] = await Promise.all([
       supabase.from('cadetes').select('*').eq('id', perfil.id).single(),
-      supabase.from('ordenes').select('*').eq('cadete_id', perfil.id)
-        .in('estado', ['asignada', 'en_camino']).order('asignada_en', { ascending: false }).limit(1).maybeSingle(),
-      supabase.from('ordenes').select('*').eq('cadete_id', perfil.id)
-        .order('creado_en', { ascending: false }).limit(50),
+      apiFetch('/api/ordenes').catch(() => null),
     ]);
+    let mias = [];
+    if (resOrdenes?.ok) {
+      const todas = await resOrdenes.json().catch(() => []);
+      mias = (Array.isArray(todas) ? todas : []).filter((o) => o.cadete_id === perfil.id);
+      mias.sort((a, b) => new Date(b.creado_en) - new Date(a.creado_en));
+    }
+    const activa = mias.find((o) => ['asignada', 'en_camino'].includes(o.estado)) ?? null;
     setCadete(cad);
-    setOrdenActiva(activa ?? null);
-    setOrdenes(ords ?? []);
+    setOrdenActiva(activa);
+    setOrdenes(mias.slice(0, 50));
     setLoading(false);
   }
 
@@ -114,27 +123,35 @@ export default function CadeteApp({ perfil, page }) {
     setAccion(false);
   }
 
-  async function marcarEntregado() {
+  // Entrega con CÓDIGO: el cliente/comercio le da el código al cadete y el
+  // backend lo valida. Sin código correcto no hay entrega.
+  const [entrega, setEntrega] = useState(null); // { codigo, error, enviando } | null
+
+  function abrirEntrega() {
     if (!ordenActiva || accion) return;
-    const ok = await confirm({ title: 'Confirmar entrega', message: '¿Marcar este pedido como entregado?', confirmLabel: 'Sí, entregado' });
-    if (!ok) return;
-    setAccion(true);
+    setEntrega({ codigo: '', error: '', enviando: false });
+  }
+
+  async function confirmarEntrega() {
+    if (!ordenActiva || !entrega || entrega.enviando) return;
+    setEntrega((p) => ({ ...p, enviando: true, error: '' }));
     try {
       const res = await apiFetch(`/api/ordenes/${ordenActiva.id}/entregar`, {
         method: 'PATCH',
-        body: JSON.stringify({ cadete_id: perfil.id }),
+        body: JSON.stringify({ cadete_id: perfil.id, codigo: entrega.codigo.trim() }),
       });
-      if (res.ok) {
-        setOrdenActiva(null);
-        await cargarDatos();
-        toast.success('¡Entrega confirmada!');
-      } else {
-        toast.error('No se pudo confirmar la entrega.');
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setEntrega((p) => ({ ...p, enviando: false, error: data?.error ?? 'No se pudo confirmar la entrega.' }));
+        return;
       }
+      setEntrega(null);
+      setOrdenActiva(null);
+      await cargarDatos();
+      toast.success('¡Entrega confirmada!');
     } catch {
-      toast.error('No se pudo confirmar la entrega. Revisá tu conexión.');
+      setEntrega((p) => ({ ...p, enviando: false, error: 'No se pudo confirmar. Revisá tu conexión.' }));
     }
-    setAccion(false);
   }
 
   if (loading) return (
@@ -169,6 +186,41 @@ export default function CadeteApp({ perfil, page }) {
           cadete={{ id: perfil.id, zona: cadete?.zona }}
           onAceptar={() => cargarDatos()}
         />
+      )}
+
+      {/* Modal de código de entrega */}
+      {entrega && ordenActiva && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !entrega.enviando && setEntrega(null)} />
+          <div className="relative w-full max-w-sm rounded-3xl bg-white p-6 shadow-2xl animate-bounce-in">
+            <h3 className="text-lg font-extrabold text-gray-900">Confirmar entrega</h3>
+            <p className="mt-1 text-sm text-gray-500">Pedile el código de entrega al cliente e ingresalo acá.</p>
+            <input
+              autoFocus
+              type="text"
+              inputMode="numeric"
+              maxLength={4}
+              value={entrega.codigo}
+              onChange={(e) => setEntrega((p) => ({ ...p, codigo: e.target.value.replace(/\D/g, ''), error: '' }))}
+              onKeyDown={(e) => { if (e.key === 'Enter') confirmarEntrega(); }}
+              placeholder="0000"
+              className="mt-4 w-full rounded-xl border-2 border-gray-200 px-4 py-3 text-center text-3xl font-extrabold tracking-[0.4em] text-gray-900 focus:border-green-500 focus:outline-none"
+            />
+            {entrega.error && (
+              <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs font-semibold text-red-600">{entrega.error}</p>
+            )}
+            <div className="mt-4 flex gap-2">
+              <button onClick={() => setEntrega(null)} disabled={entrega.enviando}
+                className="flex-1 rounded-xl border border-gray-200 py-3 text-sm font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-60">
+                Cancelar
+              </button>
+              <button onClick={confirmarEntrega} disabled={entrega.enviando}
+                className="flex-[2] rounded-xl bg-green-600 py-3 text-sm font-extrabold text-white hover:bg-green-700 active:scale-95 disabled:opacity-60">
+                {entrega.enviando ? 'Verificando...' : 'Confirmar entrega'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <div className="space-y-4 animate-fade-in max-w-3xl mx-auto">
@@ -230,7 +282,7 @@ export default function CadeteApp({ perfil, page }) {
               orden={ordenActiva}
               accion={accion}
               onEnCamino={marcarEnCamino}
-              onEntregar={marcarEntregado}
+              onEntregar={abrirEntrega}
             />
           </div>
         )}
@@ -277,12 +329,13 @@ function PedidoEnCurso({ orden, accion, onEnCamino, onEntregar }) {
   const f = finanzasDe(orden);
   const destino = orden.direccion ?? orden.destino ?? orden.zona_label ?? 'Destino del pedido';
 
-  // Ruta en Google Maps: con coordenadas exactas si el backend las guardó;
-  // si no, con la dirección anclada a la zona. Se abre con CLICK del cadete
-  // (los navegadores bloquean popups automáticos).
+  // Ruta en Google Maps: con coordenadas exactas si el backend las guardó.
+  // Si no hay coordenadas, va la dirección con provincia pero SIN forzar
+  // "Colón" (el destino puede ser San José, C. del Uruguay, etc.).
+  // Se abre con CLICK del cadete (los navegadores bloquean popups automáticos).
   const urlRuta = orden.destino_lat != null && orden.destino_lng != null
     ? `https://www.google.com/maps/dir/?api=1&destination=${orden.destino_lat},${orden.destino_lng}`
-    : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${destino}, Colón, Entre Ríos, Argentina`)}`;
+    : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${destino}, Entre Ríos, Argentina`)}`;
 
   return (
     <Card className="border-2 border-green-200 bg-gradient-to-br from-green-50 to-emerald-50 animate-bounce-in">

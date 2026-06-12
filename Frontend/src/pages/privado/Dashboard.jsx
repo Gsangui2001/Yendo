@@ -85,6 +85,15 @@ export default function PrivadoApp({ perfil, page, setPage }) {
       {activas.length > 0 && (
         <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm">
           <p className="text-sm font-semibold text-gray-900 mb-3">Seguimiento activo</p>
+          {trackingOrden?.codigo_entrega && trackingOrden.estado !== 'entregada' && (
+            <div className="mb-3 flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 p-3">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wide text-amber-700">Código de entrega</p>
+                <p className="text-[11px] text-amber-600">Dáselo al cadete cuando recibas tu pedido</p>
+              </div>
+              <p className="text-2xl font-extrabold tracking-[0.25em] text-amber-700">{trackingOrden.codigo_entrega}</p>
+            </div>
+          )}
           <TrackingMap order={trackingOrden} cadete={cadeteTracking} height={320} compact />
           <div className="mt-3 space-y-2">
             {activas.map(o => <TrackingCard key={o.id} orden={o} cadete={trackingOrden?.id === o.id ? cadeteTracking : null} onClick={() => setTracking(o)} active={trackingOrden?.id === o.id} />)}
@@ -156,6 +165,15 @@ export default function PrivadoApp({ perfil, page, setPage }) {
 
         <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
           <h3 className="font-bold mb-3">Pedidos en curso</h3>
+          {trackingOrden?.codigo_entrega && trackingOrden.estado !== 'entregada' && (
+            <div className="mb-3 flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 p-3">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wide text-amber-700">Código de entrega</p>
+                <p className="text-[11px] text-amber-600">Dáselo al cadete cuando recibas tu pedido</p>
+              </div>
+              <p className="text-2xl font-extrabold tracking-[0.25em] text-amber-700">{trackingOrden.codigo_entrega}</p>
+            </div>
+          )}
           {activas.length === 0
             ? <p className="text-sm text-gray-400">No tenés pedidos activos.</p>
             : <div className="space-y-3">{activas.map(o => <TrackingCard key={o.id} orden={o} cadete={trackingOrden?.id === o.id ? cadeteTracking : null} onClick={() => setTracking(o)} active={trackingOrden?.id === o.id} />)}</div>}

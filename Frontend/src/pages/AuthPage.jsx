@@ -94,6 +94,13 @@ export default function AuthPage() {
         <h2 className="text-xl font-bold text-gray-900 mt-5 mb-1">Bienvenido de vuelta</h2>
         <p className="text-sm text-gray-400 mb-6">Accedé a tu cuenta de Yendo</p>
 
+        {/* Llegó acá porque el backend rechazó su token (apiFetch redirige) */}
+        {new URLSearchParams(window.location.search).get('sesion') === 'vencida' && (
+          <div className="mb-4 flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm font-medium text-amber-700 animate-bounce-in">
+            <span>⏰</span> Tu sesión venció. Volvé a iniciar sesión.
+          </div>
+        )}
+
         <form onSubmit={handleLogin} className="space-y-4">
           <AuthInput label="Email" type="email" placeholder="tu@email.com" {...f('email')} />
           <AuthInput label="Contraseña" type="password" placeholder="••••••••" {...f('password')} />

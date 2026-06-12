@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { randomInt } from 'node:crypto';
 import { supabase } from '../lib/supabaseAdmin.js';
 import { encontrarCadete, estimarEspera } from '../lib/matching.js';
 import { authenticate, isAdmin, requireRole } from '../middleware/auth.js';
@@ -9,6 +10,14 @@ import { resolverCoordenadas, cargarConCoords, coordsValidas } from '../lib/ubic
 
 const router = Router();
 router.use(authenticate);
+
+// El código de entrega NUNCA viaja al cadete: se lo da el cliente en mano.
+const sinCodigoEntrega = (orden) => {
+  if (!orden) return orden;
+  const { codigo_entrega, ...resto } = orden;
+  return resto;
+};
+const esCadete = (req) => !isAdmin(req) && req.perfil?.rol === 'cadete';
 
 // ── POST /api/ordenes ──────────────────────────────────────────────────────
 // Crea un pedido y dispara el motor de asignación automática.
@@ -180,11 +189,17 @@ router.post('/', async (req, res) => {
     };
   }
 
+  // Código de entrega: lo ve el comercio/privado (y admin) y se lo da al
+  // cadete al recibir. El cadete NO lo ve hasta entregar (se filtra en GET).
+  const codigoEntrega = String(randomInt(0, 10000)).padStart(4, '0');
+
   const ordenData = {
     estado:    'pendiente',
     prioridad: esComercio ? 'alta' : 'baja',
     tipo:      esComercio ? 'comercio' : 'particular',
     es_particular: esParticular,
+    codigo_entrega: codigoEntrega,
+    codigo_entrega_intentos: 0,
 
     // Comercio
     comercio_id:    body.comercio_id    ?? null,
@@ -242,6 +257,7 @@ router.post('/', async (req, res) => {
   // Migraciones sin aplicar: reintentar quitando columnas nuevas en cascada
   // (primero las de la 005, después las financieras de la 004).
   const esErrorColumna = (e) => e && /Could not find|does not exist/i.test(e.message);
+  const campos007 = ['codigo_entrega', 'codigo_entrega_intentos'];
   const campos005 = ['destino_lat', 'destino_lng', 'distancia_calculada_en', 'distancia_calculada_por'];
   const campos004 = [
     'distancia_km', 'precio_base', 'km_incluidos', 'precio_km_extra',
@@ -249,7 +265,7 @@ router.post('/', async (req, res) => {
     'total_cadete', 'efectivo_a_rendir', 'monto_a_depositar_cadete', 'precio_calculado_en',
   ];
   let base = { ...ordenData };
-  for (const grupo of [campos005, campos004]) {
+  for (const grupo of [campos007, campos005, campos004]) {
     if (!esErrorColumna(errorInsert)) break;
     console.warn('[POST /api/ordenes] columnas ausentes, reintento sin', grupo[0], '...:', errorInsert.message);
     grupo.forEach((c) => delete base[c]);
@@ -363,7 +379,7 @@ router.get('/', async (req, res) => {
     return res.status(500).json({ error: 'No se pudo obtener las órdenes' });
   }
 
-  return res.json(data);
+  return res.json(esCadete(req) ? (data ?? []).map(sinCodigoEntrega) : data);
 });
 
 // ── PATCH /api/ordenes/:id/aceptar ────────────────────────────────────────
@@ -457,7 +473,7 @@ router.patch('/:id/aceptar', requireRole('cadete', 'admin'), async (req, res) =>
     console.error('[PATCH /aceptar] cadete:', resCadete.error.message);
   }
 
-  return res.json(resOrden.data);
+  return res.json(esCadete(req) ? sinCodigoEntrega(resOrden.data) : resOrden.data);
 });
 
 // ── PATCH /api/ordenes/:id/rechazar ────────────────────────────────────────
@@ -517,8 +533,9 @@ router.patch('/:id/rechazar', requireRole('cadete', 'admin'), async (req, res) =
     return res.status(500).json({ error: 'No se pudo registrar el rechazo' });
   }
 
+  const respuesta = esCadete(req) ? sinCodigoEntrega(data) : data;
   return res.json({
-    ...data,
+    ...respuesta,
     siguiente: siguienteCadete ? 'asignado' : 'broadcast',
   });
 });
@@ -558,14 +575,16 @@ router.patch('/:id/en_camino', requireRole('cadete', 'admin'), async (req, res) 
     return res.status(500).json({ error: 'No se pudo actualizar la orden' });
   }
 
-  return res.json(data);
+  return res.json(esCadete(req) ? sinCodigoEntrega(data) : data);
 });
 
 // ── PATCH /api/ordenes/:id/entregar ──────────────────────────────────────
-// Entrega completada: calcula split 82/18 y actualiza ganancias del cadete
+// Entrega completada: requiere el CÓDIGO DE ENTREGA que el cliente/comercio
+// le da al cadete en mano. Si es correcto, calcula split 82/18 y cierra
+// finanzas. El admin puede forzar la entrega sin código.
 router.patch('/:id/entregar', requireRole('cadete', 'admin'), async (req, res) => {
-  const { id }        = req.params;
-  const { cadete_id } = req.body;
+  const { id }              = req.params;
+  const { cadete_id, codigo } = req.body;
 
   if (!cadete_id) {
     return res.status(400).json({ error: 'cadete_id es requerido' });
@@ -575,16 +594,42 @@ router.patch('/:id/entregar', requireRole('cadete', 'admin'), async (req, res) =
     return res.status(403).json({ error: 'No podes entregar pedidos de otro cadete' });
   }
 
-  const { data: orden, error: errorBuscar } = await supabase
+  let { data: orden, error: errorBuscar } = await supabase
     .from('ordenes')
-    .select('id, estado, cadete_id, precio, cliente_id, ganancia_cadete, ganancia_yendo, propina_cadete, total_cadete')
+    .select('id, estado, cadete_id, precio, cliente_id, ganancia_cadete, ganancia_yendo, propina_cadete, total_cadete, codigo_entrega, codigo_entrega_intentos')
     .eq('id', id)
     .single();
+
+  // Migración 007 sin aplicar: seguir sin las columnas de código
+  if (errorBuscar && /does not exist|Could not find/i.test(errorBuscar.message)) {
+    ({ data: orden, error: errorBuscar } = await supabase
+      .from('ordenes')
+      .select('id, estado, cadete_id, precio, cliente_id, ganancia_cadete, ganancia_yendo, propina_cadete, total_cadete')
+      .eq('id', id)
+      .single());
+  }
 
   if (errorBuscar || !orden) return res.status(404).json({ error: 'Orden no encontrada' });
   if (orden.cadete_id !== cadete_id) return res.status(403).json({ error: 'No es tu orden' });
   if (!['asignada', 'en_camino'].includes(orden.estado)) {
     return res.status(409).json({ error: `Estado inválido: ${orden.estado}` });
+  }
+
+  // Validación del código (órdenes viejas sin código quedan exentas)
+  const verificadoEn = {};
+  if (orden.codigo_entrega && !isAdmin(req)) {
+    const ingresado = String(codigo ?? '').trim();
+    if (!ingresado) {
+      return res.status(422).json({ error: 'Ingresá el código de entrega que te da el cliente.', codigo_requerido: true });
+    }
+    if (ingresado !== String(orden.codigo_entrega)) {
+      await supabase
+        .from('ordenes')
+        .update({ codigo_entrega_intentos: (orden.codigo_entrega_intentos ?? 0) + 1 })
+        .eq('id', id);
+      return res.status(422).json({ error: 'Código incorrecto. Pedíselo de nuevo al cliente.', codigo_requerido: true });
+    }
+    verificadoEn.codigo_entrega_verificado_en = new Date().toISOString();
   }
 
   // Usar los montos calculados al crear el pedido; si es una orden vieja sin
@@ -597,17 +642,28 @@ router.patch('/:id/entregar', requireRole('cadete', 'admin'), async (req, res) =
   const totalCadete    = Number(orden.total_cadete ?? (gananciaCadete + propina));
   const ahora          = new Date().toISOString();
 
-  const resOrden = await supabase
+  let resOrden = await supabase
     .from('ordenes')
     .update({
       estado:          'entregada',
       entregada_en:    ahora,
       ganancia_cadete: gananciaCadete,
       ganancia_yendo:  gananciaYendo,
+      ...verificadoEn,
     })
     .eq('id', id)
     .select()
     .single();
+
+  // Columna de verificación ausente (007 sin aplicar): reintentar sin ella
+  if (resOrden.error && /does not exist|Could not find/i.test(resOrden.error.message)) {
+    resOrden = await supabase
+      .from('ordenes')
+      .update({ estado: 'entregada', entregada_en: ahora, ganancia_cadete: gananciaCadete, ganancia_yendo: gananciaYendo })
+      .eq('id', id)
+      .select()
+      .single();
+  }
 
   if (resOrden.error) {
     console.error('[PATCH /entregar] orden:', resOrden.error.message);

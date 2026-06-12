@@ -35,6 +35,7 @@ export default function AdminApp({ perfil, page, setPage }) {
   const [zonas,     setZonas]     = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [planTarget, setPlanTarget] = useState(null);
+  const [filtroCadetes, setFiltroCadetes] = useState('todos'); // todos | activos | disponible | en_viaje | offline
 
   useEffect(() => { cargarTodo(); }, []);
 
@@ -144,23 +145,50 @@ export default function AdminApp({ perfil, page, setPage }) {
     const ruta   = cadetes.filter(c => c.estado === 'en_viaje');
     const off    = cadetes.filter(c => c.estado === 'offline');
     const viajesHoy = cadetes.reduce((s, c) => s + (c.viajes_hoy ?? 0), 0);
+    // Filtro activo desde los KPIs de arriba
+    const cadetesFiltrados =
+      filtroCadetes === 'activos' ? cadetes.filter(c => ['disponible', 'en_viaje'].includes(c.estado))
+      : filtroCadetes === 'todos' ? cadetes
+      : cadetes.filter(c => c.estado === filtroCadetes);
     return (
       <div className="space-y-6 animate-fade-in">
         <AdminHeader perfil={perfil} titulo="Cadetes" sub="Gestioná y monitoreá a los cadetes en tiempo real"
           accion={<button onClick={() => setPage('nuevo-cadete')} className="btn-primary px-4 py-2.5 text-sm ripple">+ Agregar cadete</button>} />
 
+        {/* KPIs que FILTRAN la tabla (click para filtrar, click de nuevo para ver todos) */}
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-          <StatCard2 icon="bike"     tint="green"  label="Activos"       value={disp.length + ruta.length} delta="cadetes" up />
-          <StatCard2 icon="check"    tint="green"  label="Disponibles"   value={disp.length}               delta="online" up />
-          <StatCard2 icon="navigate" tint="blue"   label="En ruta"       value={ruta.length}               delta="entregando" />
-          <StatCard2 icon="power"    tint="gray"   label="Desconectados" value={off.length}                delta="offline" />
-          <StatCard2 icon="box"      tint="violet" label="Viajes hoy"    value={viajesHoy}                 delta="entregas del día" up />
+          {[
+            { key: 'activos',    icon: 'bike',     tint: 'green', label: 'Activos',       value: disp.length + ruta.length, delta: 'disponible + en viaje', up: true },
+            { key: 'disponible', icon: 'check',    tint: 'green', label: 'Disponibles',   value: disp.length,               delta: 'solo libres', up: true },
+            { key: 'en_viaje',   icon: 'navigate', tint: 'blue',  label: 'En ruta',       value: ruta.length,               delta: 'entregando' },
+            { key: 'offline',    icon: 'power',    tint: 'gray',  label: 'Desconectados', value: off.length,                delta: 'offline' },
+          ].map(f => (
+            <button key={f.key} type="button"
+              onClick={() => setFiltroCadetes(prev => prev === f.key ? 'todos' : f.key)}
+              className={`text-left rounded-2xl transition-all ${filtroCadetes === f.key ? 'ring-2 ring-green-500 ring-offset-2' : 'hover:-translate-y-0.5'}`}>
+              <StatCard2 icon={f.icon} tint={f.tint} label={f.label} value={f.value} delta={f.delta} up={f.up} />
+            </button>
+          ))}
+          <StatCard2 icon="box" tint="violet" label="Viajes hoy" value={viajesHoy} delta="entregas del día" up />
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
           {/* Tabla conectados */}
           <div className="xl:col-span-2 bg-white rounded-2xl border border-gray-100 p-5">
-            <h3 className="font-bold text-gray-900 mb-4">Cadetes conectados</h3>
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="font-bold text-gray-900">
+                {filtroCadetes === 'todos' ? 'Todos los cadetes'
+                  : filtroCadetes === 'activos' ? 'Cadetes activos (disponibles + en viaje)'
+                  : filtroCadetes === 'disponible' ? 'Cadetes disponibles'
+                  : filtroCadetes === 'en_viaje' ? 'Cadetes en viaje'
+                  : 'Cadetes desconectados'}
+              </h3>
+              {filtroCadetes !== 'todos' && (
+                <button onClick={() => setFiltroCadetes('todos')} className="text-xs font-semibold text-green-600 hover:text-green-700">
+                  Ver todos
+                </button>
+              )}
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead><tr className="text-xs text-gray-400 uppercase border-b border-gray-100">
@@ -169,7 +197,7 @@ export default function AdminApp({ perfil, page, setPage }) {
                   <th className="text-left pb-3 pr-4 hidden sm:table-cell">Viajes</th><th className="text-left pb-3">Acción</th>
                 </tr></thead>
                 <tbody>
-                  {cadetes.map((c, i) => (
+                  {cadetesFiltrados.map((c, i) => (
                     <tr key={c.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50">
                       <td className="py-3 pr-4"><div className="flex items-center gap-3"><Avatar nombre={c.nombre} /><span className="font-semibold text-gray-800">{c.nombre}</span></div></td>
                       <td className="py-3 pr-4">
@@ -191,7 +219,7 @@ export default function AdminApp({ perfil, page, setPage }) {
                       </td>
                     </tr>
                   ))}
-                  {cadetes.length === 0 && <tr><td colSpan={6}><Empty texto="Sin cadetes registrados" /></td></tr>}
+                  {cadetesFiltrados.length === 0 && <tr><td colSpan={6}><Empty texto={filtroCadetes === 'todos' ? 'Sin cadetes registrados' : 'Ningún cadete en este estado'} /></td></tr>}
                 </tbody>
               </table>
             </div>
@@ -338,6 +366,7 @@ export default function AdminApp({ perfil, page, setPage }) {
                 <th className="text-left px-4 py-3 text-xs text-gray-400 font-semibold uppercase">Precio</th>
                 <th className="text-left px-4 py-3 text-xs text-gray-400 font-semibold uppercase">Estado</th>
                 <th className="text-left px-4 py-3 text-xs text-gray-400 font-semibold uppercase">Cadete</th>
+                <th className="text-left px-4 py-3 text-xs text-gray-400 font-semibold uppercase hidden md:table-cell">Código</th>
               </tr>
             </thead>
             <tbody>
@@ -358,6 +387,11 @@ export default function AdminApp({ perfil, page, setPage }) {
                       : o.estado === 'pendiente'
                         ? <SelectAsignar cadetes={cadetes} onAsignar={id => asignarCadete(o.id, id)} />
                         : <span className="text-xs text-gray-300">—</span>}
+                  </td>
+                  <td className="px-4 py-3 hidden md:table-cell">
+                    {o.codigo_entrega
+                      ? <span className={`font-mono text-sm font-bold tracking-widest ${o.estado === 'entregada' ? 'text-gray-300' : 'text-amber-600'}`}>{o.codigo_entrega}</span>
+                      : <span className="text-xs text-gray-300">—</span>}
                   </td>
                 </tr>
               ))}

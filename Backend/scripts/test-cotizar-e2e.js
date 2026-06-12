@@ -177,6 +177,13 @@ if (!cliente) {
     if (guardada?.origen_lat != null) bien(`origen geocodificado: ${guardada.origen_lat.toFixed(5)}, ${guardada.origen_lng.toFixed(5)}`);
     else falla('origen_lat quedó null');
 
+    if ('codigo_entrega' in (guardada ?? {})) {
+      if (/^\d{4}$/.test(String(guardada.codigo_entrega ?? ''))) bien(`código de entrega generado: ${guardada.codigo_entrega}`);
+      else falla(`código de entrega inválido: ${guardada.codigo_entrega}`);
+    } else {
+      console.log('  - columnas 007 todavía no aplicadas: sin código de entrega (esperado hasta correr la migración)');
+    }
+
     // Limpiar: cancelar el pedido de prueba y liberar al cadete si se asignó
     await admin.from('ordenes').update({ estado: 'cancelada' }).eq('id', o.data.id);
     if (guardada?.cadete_id) await admin.from('cadetes').update({ estado: 'disponible' }).eq('id', guardada.cadete_id);
