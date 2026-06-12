@@ -3,8 +3,10 @@
 // distancia_km, propina_cadete y metodo_pago; acá se decide todo.
 //
 // Reglas:
-//   - Comercio:   $3.000 hasta 5 km incluidos, luego $700 por km extra.
-//   - Particular: $3.500 hasta 5 km incluidos, luego $700 por km extra.
+//   - Comercio:   $3.000 hasta 5 km incluidos, luego $1.100 por km extra.
+//                 (10 km = 3000 + 5*1100 = $8.500 — caso real a San José)
+//   - Particular: $3.500 hasta 5 km incluidos, luego $1.000 por km extra.
+//                 (10 km = 3500 + 5*1000 = $8.500)
 //   - Recargo clima/feriado: $500 fijos si lluvia O feriado está activo
 //     (si están los dos activos se cobra UNA sola vez). Forma parte del
 //     precio del envío, así que se reparte 82/18 como todo lo demás.
@@ -14,8 +16,8 @@
 //   - Online/transferencia: Yendo cobra todo y deposita al cadete su total.
 
 export const TARIFAS = {
-  comercio:   { precio_base: 3000, km_incluidos: 5, precio_km_extra: 700 },
-  particular: { precio_base: 3500, km_incluidos: 5, precio_km_extra: 700 },
+  comercio:   { precio_base: 3000, km_incluidos: 5, precio_km_extra: 1100 },
+  particular: { precio_base: 3500, km_incluidos: 5, precio_km_extra: 1000 },
 };
 
 export const RECARGO_DEFAULT = 500;

@@ -381,7 +381,7 @@ export default function SolicitarCadete({ usuarioId, onPedidoCreado }) {
                 placeholder="$0" className={inputCls()} />
             </Field>
           </div>
-          <p className="-mt-2 text-xs text-gray-400">Tarifa: $3.500 hasta 5 km · $700 por km extra. La distancia se calcula sola con tus direcciones. La propina es 100% para el cadete.</p>
+          <p className="-mt-2 text-xs text-gray-400">Tarifa: $3.500 hasta 5 km · $1.000 por km extra. La distancia se calcula sola con tus direcciones. La propina es 100% para el cadete.</p>
 
           {/* Desglose cotizado */}
           {(cotizacion || cotizando) && (

@@ -162,8 +162,9 @@ export default function CadeteApp({ perfil, page }) {
   // ── Inicio ─────────────────────────────────────────────────────────────
   return (
     <>
-      {/* Modal de asignación (siempre montado cuando el cadete no está offline) */}
-      {cadete?.estado !== 'offline' && (
+      {/* Modal de asignación: solo cuando está conectado Y SIN pedido en
+          curso — un cadete ocupado no recibe ofertas nuevas */}
+      {cadete?.estado !== 'offline' && !ordenActiva && (
         <AssignmentModal
           cadete={{ id: perfil.id, zona: cadete?.zona }}
           onAceptar={() => cargarDatos()}
@@ -273,8 +274,15 @@ export default function CadeteApp({ perfil, page }) {
 
 function PedidoEnCurso({ orden, accion, onEnCamino, onEntregar }) {
   const enCamino = orden.estado === 'en_camino';
-  const ganancia = Math.round((orden.precio ?? 0) * 0.82);
+  const f = finanzasDe(orden);
   const destino = orden.direccion ?? orden.destino ?? orden.zona_label ?? 'Destino del pedido';
+
+  // Ruta en Google Maps: con coordenadas exactas si el backend las guardó;
+  // si no, con la dirección anclada a la zona. Se abre con CLICK del cadete
+  // (los navegadores bloquean popups automáticos).
+  const urlRuta = orden.destino_lat != null && orden.destino_lng != null
+    ? `https://www.google.com/maps/dir/?api=1&destination=${orden.destino_lat},${orden.destino_lng}`
+    : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${destino}, Colón, Entre Ríos, Argentina`)}`;
 
   return (
     <Card className="border-2 border-green-200 bg-gradient-to-br from-green-50 to-emerald-50 animate-bounce-in">
@@ -286,15 +294,25 @@ function PedidoEnCurso({ orden, accion, onEnCamino, onEntregar }) {
       {/* Destino prominente */}
       <div className="rounded-2xl bg-white p-4 mb-3">
         <div className="flex items-start gap-3">
-          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-green-100 text-green-600">
+          <span className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-green-100 text-green-600">
             <Icon name="pin" className="w-5 h-5" />
           </span>
           <div className="min-w-0">
             <p className="text-xs font-semibold text-gray-400">Entregar en</p>
-            <p className="font-bold text-gray-900 leading-snug">{destino}</p>
-            {orden.zona_label && <p className="text-xs text-gray-500 mt-0.5">{orden.zona_label}</p>}
+            <p className="text-xl font-extrabold text-gray-900 leading-snug">{destino}</p>
+            {orden.distancia_km > 0 && <p className="text-xs text-gray-500 mt-0.5">{orden.distancia_km} km{orden.zona_label ? ` · ${orden.zona_label}` : ''}</p>}
           </div>
         </div>
+        {/* Botón principal: abrir la ruta en Google Maps */}
+        <a
+          href={urlRuta}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-3.5 text-base font-extrabold text-white shadow-sm transition-all hover:bg-blue-700 active:scale-95"
+        >
+          <Icon name="navigate" className="w-5 h-5" />
+          Abrir ruta
+        </a>
         <div className="mt-3 flex items-center gap-2 border-t border-gray-100 pt-3 text-sm">
           <Icon name="user" className="w-4 h-4 text-gray-400" />
           <span className="font-semibold text-gray-700 truncate">{orden.cliente_nombre ?? orden.descripcion ?? 'Cliente'}</span>
@@ -304,12 +322,12 @@ function PedidoEnCurso({ orden, accion, onEnCamino, onEntregar }) {
       {/* Ganancia del viaje */}
       <div className="mb-4 flex items-center justify-between rounded-2xl bg-white p-4">
         <div>
-          <p className="text-xs font-semibold text-gray-400">Tu ganancia (82%)</p>
-          <p className="text-2xl font-extrabold text-green-600">${ganancia.toLocaleString('es-AR')}</p>
+          <p className="text-xs font-semibold text-gray-400">Tu ganancia{f.propina > 0 ? ' (82% + propina)' : ' (82%)'}</p>
+          <p className="text-2xl font-extrabold text-green-600">{fmt(Math.round(f.total))}</p>
         </div>
         <div className="text-right">
-          <p className="text-xs text-gray-400">Total envío</p>
-          <p className="text-sm font-bold text-gray-700">${Number(orden.precio ?? 0).toLocaleString('es-AR')}</p>
+          <p className="text-xs text-gray-400">Total a cobrar</p>
+          <p className="text-sm font-bold text-gray-700">{fmt(Number(orden.total_cliente ?? orden.precio ?? 0))}</p>
           <p className="text-[11px] text-gray-400 capitalize">{orden.metodo_pago ?? 'efectivo'}</p>
         </div>
       </div>
@@ -350,6 +368,14 @@ function GananciasView({ cadete, ordenes }) {
   const entregadas = ordenes.filter((o) => o.estado === 'entregada' && enPeriodo(o));
   const p = periodos[tab];
 
+  // Días trabajados del mes: fechas únicas con al menos una entrega
+  const mesStr = new Date().toISOString().slice(0, 7);
+  const diasTrabajados = [...new Set(
+    ordenes
+      .filter((o) => o.estado === 'entregada' && (o.entregada_en ?? o.creado_en ?? '').startsWith(mesStr))
+      .map((o) => (o.entregada_en ?? o.creado_en).slice(0, 10))
+  )].sort().reverse();
+
   // Liquidación del período: propinas, efectivo a rendir y a depositar
   const liq = entregadas.reduce((acc, o) => {
     const f = finanzasDe(o);
@@ -387,6 +413,23 @@ function GananciasView({ cadete, ordenes }) {
           <p className="text-xs text-gray-500 mt-1">Viajes</p>
         </Card>
       </div>
+
+      {/* Días trabajados del mes */}
+      <Card className="py-3">
+        <div className="flex items-center justify-between px-1">
+          <div>
+            <p className="text-lg font-extrabold text-gray-900">{diasTrabajados.length} día{diasTrabajados.length === 1 ? '' : 's'}</p>
+            <p className="text-[11px] text-gray-500">Trabajados este mes (con entregas)</p>
+          </div>
+          <div className="flex max-w-[55%] flex-wrap justify-end gap-1">
+            {diasTrabajados.slice(0, 10).map((d) => (
+              <span key={d} className="rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-bold text-green-700">
+                {new Date(`${d}T12:00:00`).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })}
+              </span>
+            ))}
+          </div>
+        </div>
+      </Card>
 
       {/* Liquidación */}
       <div className="grid grid-cols-3 gap-3">

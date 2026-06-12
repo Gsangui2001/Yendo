@@ -128,10 +128,17 @@ router.post('/cotizar-direcciones', async (req, res) => {
   let geoOrigen, geoDestino;
   try {
     geoOrigen = await resolverCoordenadas(direccionOrigen, entidadOrigen);
-    if (geoOrigen) geoDestino = await resolverCoordenadas(destino, entidadDestino);
+    if (geoOrigen && !geoOrigen.fuera_de_zona) geoDestino = await resolverCoordenadas(destino, entidadDestino);
   } catch (err) {
     console.error('[POST /cotizar-direcciones] geocoder:', err.message);
     return res.status(503).json({ error: 'No pudimos verificar las direcciones ahora. Probá de nuevo en unos segundos.' });
+  }
+  // Resultado ambiguo o lejos de la zona: pedir más detalle, no cotizar mal
+  if (geoOrigen?.fuera_de_zona) {
+    return res.status(422).json({ error: `No pudimos confirmar la dirección de origen: "${direccionOrigen}". Agregá ciudad/localidad.`, campo: 'origen' });
+  }
+  if (geoDestino?.fuera_de_zona) {
+    return res.status(422).json({ error: `No pudimos confirmar la dirección de destino: "${destino}". Agregá ciudad/localidad.`, campo: 'destino' });
   }
   if (!geoOrigen) {
     return res.status(422).json({ error: `No encontramos la dirección de origen: "${direccionOrigen}". Revisá calle y número.`, campo: 'origen' });

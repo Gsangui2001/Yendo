@@ -3,21 +3,19 @@ import { supabase } from '../../lib/supabaseClient';
 import { apiFetch } from '../../lib/api';
 import { Icon } from '../ui/Icon';
 
-const LAST_ZONA_KEY = 'yendo_ultima_zona';
-
 export default function Pedido({ comercioId, comercio, onSuccess }) {
   const direccionComercio = comercio?.direccion?.trim() || '';
   const [clientes,  setClientes]  = useState([]);
-  const [zonas,     setZonas]     = useState([]);
   const [loading,   setLoading]   = useState(false);
   const [toast,     setToast]     = useState(null);
   const [errors,    setErrors]    = useState({});
   const [modoNuevo, setModoNuevo] = useState(false); // true = formulario cliente nuevo
 
+  // Sin zona: el precio sale SOLO de la distancia origen→destino que calcula
+  // el backend. La zona quedó como dato interno secundario (matching).
   const [form, setForm] = useState({
     clienteId:  '',
     direccion:  '',
-    zona:       localStorage.getItem(LAST_ZONA_KEY) || '',
     distanciaKm: '',
     propina:     '',
     metodoPago:  'efectivo',
@@ -27,15 +25,12 @@ export default function Pedido({ comercioId, comercio, onSuccess }) {
   const [geoError,   setGeoError]   = useState(null); // dirección no encontrada → fallback km manual
 
   const [nuevoCliente, setNuevoCliente] = useState({
-    nombre: '', telefono: '', direccion: '', zona: '',
+    nombre: '', telefono: '', direccion: '',
   });
   const [guardandoCliente, setGuardandoCliente] = useState(false);
 
-  const zonaData = zonas.find(z => z.value === form.zona) ?? null;
-
   useEffect(() => {
     cargarClientes();
-    cargarZonas();
   }, [comercioId]);
 
   // Cotización en vivo POR DIRECCIÓN: el backend geocodifica desde la
@@ -108,25 +103,11 @@ export default function Pedido({ comercioId, comercio, onSuccess }) {
     setClientes(data ?? []);
   }
 
-  async function cargarZonas() {
-    const { data } = await supabase.from('zonas').select('*').eq('activo', true).order('orden');
-    if (data?.length) setZonas(data);
-    else setZonas([
-      { value: 'ciudad_colon',      label: 'Ciudad de Colón',   precio: 3000 },
-      { value: 'barrio_ombu',       label: 'Barrio Ombú',       precio: 3500 },
-      { value: 'barrio_artalaz',    label: 'Barrio Artalaz',    precio: 5000 },
-      { value: 'barrio_los_bretes', label: 'Barrio Los Bretes', precio: 6000 },
-      { value: 'san_jose',          label: 'San José',          precio: 8500 },
-      { value: 'el_brillante',      label: 'El Brillante',      precio: 8500 },
-      { value: 'pueblo_liebig',     label: 'Pueblo Liebig',     precio: 8500 },
-    ]);
-  }
-
   function handleCliente(e) {
     const id      = e.target.value;
     if (id === '__nuevo__') { setModoNuevo(true); return; }
     const cliente = clientes.find(c => c.id === id);
-    setForm(prev => ({ ...prev, clienteId: id, direccion: cliente?.direccion ?? '', zona: cliente?.zona || prev.zona }));
+    setForm(prev => ({ ...prev, clienteId: id, direccion: cliente?.direccion ?? '' }));
     clearErrors('clienteId', 'direccion');
   }
 
@@ -138,7 +119,6 @@ export default function Pedido({ comercioId, comercio, onSuccess }) {
     const e = {};
     if (!form.clienteId)        e.clienteId = 'Seleccioná un cliente';
     if (!form.direccion.trim()) e.direccion = 'La dirección es requerida';
-    if (!form.zona)             e.zona      = 'Seleccioná una zona';
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -154,7 +134,6 @@ export default function Pedido({ comercioId, comercio, onSuccess }) {
           nombre:      nuevoCliente.nombre.trim(),
           telefono:    nuevoCliente.telefono.trim(),
           direccion:   nuevoCliente.direccion.trim(),
-          zona:        nuevoCliente.zona || null,
         }),
       });
       const data = await res.json().catch(() => null);
@@ -163,8 +142,8 @@ export default function Pedido({ comercioId, comercio, onSuccess }) {
         return;
       }
       await cargarClientes();
-      setForm(prev => ({ ...prev, clienteId: data.id, direccion: data.direccion ?? '' , zona: data.zona || prev.zona }));
-      setNuevoCliente({ nombre: '', telefono: '', direccion: '', zona: '' });
+      setForm(prev => ({ ...prev, clienteId: data.id, direccion: data.direccion ?? '' }));
+      setNuevoCliente({ nombre: '', telefono: '', direccion: '' });
       setModoNuevo(false);
       showToast('Cliente guardado', 'success');
     } catch {
@@ -192,17 +171,15 @@ export default function Pedido({ comercioId, comercio, onSuccess }) {
           cliente_id:     form.clienteId,
           cliente_nombre: cliente?.nombre,
           direccion:      form.direccion,
-          zona:           form.zona,
-          zona_label:     zonaData?.label,
+          // Zona: dato interno secundario (matching); sale del cliente si la tiene
+          zona:           cliente?.zona || undefined,
           distancia_km:   kmFallback,
           propina_cadete: Number(form.propina) || 0,
           metodo_pago:    form.metodoPago,
-          // Último recurso: si no hay km ni dirección geocodificable, precio de zona
-          precio:         kmFallback ? undefined : (zonaData?.precio ?? 0),
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      if (!res.ok) throw new Error(data?.error ?? data?.errores?.join(', '));
 
       const msg = data.sin_cadetes
         ? `Sin cadetes disponibles. Espera aprox. ${data.espera_minutos} min — el pedido quedó en cola`
@@ -211,8 +188,8 @@ export default function Pedido({ comercioId, comercio, onSuccess }) {
       setForm(prev => ({ ...prev, clienteId: '', direccion: '' }));
       setErrors({});
       setTimeout(() => onSuccess?.(), 1500);
-    } catch {
-      showToast('No se pudo enviar el pedido. Intentá de nuevo.', 'error');
+    } catch (err) {
+      showToast(err?.message || 'No se pudo enviar el pedido. Intentá de nuevo.', 'error');
     } finally {
       setLoading(false);
     }
@@ -241,7 +218,7 @@ export default function Pedido({ comercioId, comercio, onSuccess }) {
           <div className="grid grid-cols-3 gap-2 text-center text-xs font-semibold text-gray-500">
             <Step n="1" label="Cliente" active={Boolean(form.clienteId)} />
             <Step n="2" label="Dirección" active={Boolean(form.direccion.trim())} />
-            <Step n="3" label="Enviar" active={Boolean(zonaData)} />
+            <Step n="3" label="Enviar" active={Boolean(cotizacion)} />
           </div>
         </div>
       </div>
@@ -281,11 +258,7 @@ export default function Pedido({ comercioId, comercio, onSuccess }) {
                 <input value={nuevoCliente.telefono} onChange={e => setNuevoCliente(p => ({...p, telefono: e.target.value}))}
                   placeholder="Teléfono" className={inputCls()} />
                 <input value={nuevoCliente.direccion} onChange={e => setNuevoCliente(p => ({...p, direccion: e.target.value}))}
-                  placeholder="Dirección" className={inputCls()} />
-                <select value={nuevoCliente.zona} onChange={e => setNuevoCliente(p => ({...p, zona: e.target.value}))} className={inputCls()}>
-                  <option value="">Zona habitual (opcional)</option>
-                  {zonas.map(z => <option key={z.value} value={z.value}>{z.label}</option>)}
-                </select>
+                  placeholder="Dirección (calle y número)" className={inputCls() + ' sm:col-span-2'} />
               </div>
               <div className="flex gap-2">
                 <button type="button" onClick={() => setModoNuevo(false)} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600">Cancelar</button>
@@ -322,15 +295,6 @@ export default function Pedido({ comercioId, comercio, onSuccess }) {
             )}
           </Field>
 
-          {/* Zona */}
-          <Field label="Zona" required error={errors.zona}>
-            <select value={form.zona} onChange={e => { const v = e.target.value; setForm(p => ({...p, zona: v})); if(v) localStorage.setItem(LAST_ZONA_KEY, v); clearErrors('zona'); }}
-              className={inputCls(errors.zona)}>
-              <option value="">Seleccionar zona...</option>
-              {zonas.map(z => <option key={z.value} value={z.value}>{z.label}</option>)}
-            </select>
-          </Field>
-
           {/* Pago, propina y (solo como fallback) distancia manual */}
           <div className={`grid gap-3 ${geoError ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
             {geoError && (
@@ -353,23 +317,22 @@ export default function Pedido({ comercioId, comercio, onSuccess }) {
                 placeholder="$0" className={inputCls()} />
             </Field>
           </div>
-          <p className="-mt-2 text-xs text-gray-400">Tarifa comercio: $3.000 hasta 5 km · $700 por km extra. La distancia se calcula sola desde tu local hasta la entrega. La propina es 100% para el cadete.</p>
+          <p className="-mt-2 text-xs text-gray-400">Tarifa comercio: $3.000 hasta 5 km · $1.100 por km extra. La distancia se calcula sola desde tu local hasta la entrega. La propina es 100% para el cadete.</p>
         </div>
 
         <aside className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm lg:sticky lg:top-6 lg:self-start">
           <p className="text-sm font-extrabold text-gray-900">Resumen del pedido</p>
           <div className="mt-4 space-y-3">
             <SummaryRow icon="user" label="Cliente" value={clientes.find(c => c.id === form.clienteId)?.nombre || 'Sin seleccionar'} />
+            <SummaryRow icon="store" label="Origen" value={direccionComercio || 'Sin dirección del comercio'} />
             <SummaryRow icon="pin" label="Entrega" value={form.direccion || 'Dirección pendiente'} />
-            <SummaryRow icon="navigate" label="Zona" value={zonaData?.label || 'Sin zona'} />
+            <SummaryRow icon="navigate" label="Distancia" value={cotizacion ? `${cotizacion.distancia_km} km` : 'Se calcula sola'} />
           </div>
 
           <div className="mt-5 rounded-2xl border border-green-100 bg-green-50 p-4">
             <p className="text-xs font-bold uppercase tracking-wide text-green-700">Total a pagar</p>
             <p className="mt-1 text-4xl font-extrabold tabular-nums text-green-700">
-              {cotizacion
-                ? `$${cotizacion.total_cliente.toLocaleString('es-AR')}`
-                : zonaData ? `$${Number(zonaData.precio).toLocaleString('es-AR')}` : '—'}
+              {cotizacion ? `$${cotizacion.total_cliente.toLocaleString('es-AR')}` : '—'}
             </p>
             {cotizacion && (
               <div className="mt-2 space-y-1 border-t border-green-200 pt-2 text-xs text-green-800">

@@ -36,7 +36,9 @@ export async function resolverCoordenadas(direccion, entidad = null) {
 
   const geo = await geocodificar(direccion);
 
-  if (geo && coincide) {
+  // Resultado fuera de la zona operativa: se devuelve la señal tal cual para
+  // que el endpoint pida más detalle; NUNCA se persisten esas coordenadas.
+  if (geo && !geo.fuera_de_zona && coincide) {
     const { error } = await supabase
       .from(entidad.tabla)
       .update({ lat: geo.lat, lng: geo.lng })
@@ -73,7 +75,7 @@ export async function coordsParaInsert(direccion) {
   if (!direccion || !String(direccion).trim()) return {};
   try {
     const geo = await geocodificar(direccion);
-    return geo ? { lat: geo.lat, lng: geo.lng } : {};
+    return geo && !geo.fuera_de_zona ? { lat: geo.lat, lng: geo.lng } : {};
   } catch {
     return {};
   }

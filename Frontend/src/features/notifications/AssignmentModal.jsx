@@ -86,8 +86,19 @@ export function AssignmentModal({ cadete, onAceptar }) {
         const res = await apiFetch('/api/ordenes');
         if (!res.ok) return;
         const data = await res.json();
+        const filas = Array.isArray(data) ? data : [];
 
-        const pendiente = (Array.isArray(data) ? data : [])
+        // Si el cadete YA tiene un pedido en curso, no ofrecerle nada más
+        // (un viaje a la vez). Si había una oferta abierta, cerrarla.
+        const tengoActiva = filas.some(
+          (o) => o.cadete_id === cadete.id && ['asignada', 'en_camino'].includes(o.estado)
+        );
+        if (tengoActiva) {
+          if (pedidoRef.current) limpiar();
+          return;
+        }
+
+        const pendiente = filas
           .filter((orden) => {
             if (orden.estado !== 'pendiente') return false;
             const esMia       = orden.asignado_a_id === cadete.id;

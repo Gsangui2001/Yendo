@@ -379,22 +379,49 @@ export default function AdminApp({ perfil, page, setPage }) {
         <StatCard2 icon="store"  tint="violet" label="Planes comercios" value={`$${ingresosPlanes.toLocaleString('es-AR')}`}  delta="día/mes/año" up />
       </div>
 
+      {/* Estado operativo de los cadetes */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-green-50 px-3 py-1.5 text-xs font-bold text-green-700 border border-green-100">
+          <span className="h-2 w-2 rounded-full bg-green-500" />
+          {cadetes.filter(c => c.estado === 'disponible').length} disponibles
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 border border-blue-100">
+          <span className="h-2 w-2 rounded-full bg-blue-500" />
+          {cadetes.filter(c => c.estado === 'en_viaje').length} en viaje (ocupados)
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-50 px-3 py-1.5 text-xs font-bold text-gray-500 border border-gray-100">
+          <span className="h-2 w-2 rounded-full bg-gray-300" />
+          {cadetes.filter(c => c.estado === 'offline').length} offline
+        </span>
+        {pendientes.length > 0 && cadetes.filter(c => c.estado === 'disponible').length === 0 && (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 px-3 py-1.5 text-xs font-bold text-red-600 border border-red-200">
+            Sin cadetes libres con pedidos en espera
+          </span>
+        )}
+      </div>
+
       {pendientes.length > 0 && (
         <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
           <p className="font-bold text-red-700 mb-2">⚠️ {pendientes.length} pedido{pendientes.length > 1 ? 's' : ''} sin cadete</p>
           <div className="space-y-2">
-            {pendientes.slice(0, 3).map(o => (
-              <div key={o.id} className="bg-white rounded-xl p-3 flex flex-wrap justify-between items-center gap-2">
-                <div>
-                  <p className="text-sm font-semibold">{o.cliente_nombre ?? 'Particular'}</p>
-                  <p className="text-xs text-gray-400">{o.zona_label ?? o.descripcion ?? '—'} · ${(o.precio ?? 0).toLocaleString('es-AR')}</p>
+            {pendientes.slice(0, 5).map(o => {
+              const min = Math.floor((Date.now() - new Date(o.creado_en)) / 60000);
+              const demorado = min >= 15;
+              return (
+                <div key={o.id} className="bg-white rounded-xl p-3 flex flex-wrap justify-between items-center gap-2">
+                  <div>
+                    <p className="text-sm font-semibold">{o.cliente_nombre ?? 'Particular'}</p>
+                    <p className="text-xs text-gray-400">{o.zona_label ?? o.descripcion ?? '—'} · ${(o.precio ?? 0).toLocaleString('es-AR')}</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <SelectAsignar cadetes={cadetes} onAsignar={id => asignarCadete(o.id, id)} />
+                    <p className={`text-xs font-bold ${demorado ? 'text-red-600' : 'text-gray-400'}`}>
+                      {min} min{demorado ? ' · demorado' : ''}
+                    </p>
+                  </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <SelectAsignar cadetes={cadetes} onAsignar={id => asignarCadete(o.id, id)} />
-                  <p className="text-xs text-gray-400">{Math.floor((Date.now() - new Date(o.creado_en)) / 60000)} min</p>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

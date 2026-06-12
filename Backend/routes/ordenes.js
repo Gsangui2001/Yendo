@@ -32,7 +32,8 @@ router.post('/', async (req, res) => {
   if (esComercio) {
     if (!body.cliente_id)  errores.push('cliente_id es requerido');
     if (!body.direccion)   errores.push('direccion es requerida');
-    if (!body.zona)        errores.push('zona es requerida');
+    // zona ya NO es requerida: el precio sale de la distancia; para matching
+    // es solo una preferencia y puede derivarse del cliente.
   }
 
   if (esParticular) {
@@ -75,7 +76,7 @@ router.post('/', async (req, res) => {
       }
     }
 
-    const { data: cliente, error: clienteError } = await cargarConCoords('clientes', body.cliente_id, 'id, comercio_id, direccion');
+    const { data: cliente, error: clienteError } = await cargarConCoords('clientes', body.cliente_id, 'id, comercio_id, direccion, zona');
     if (!isAdmin(req) && (clienteError || !cliente || cliente.comercio_id !== body.comercio_id)) {
       return res.status(403).json({ error: 'Cliente no pertenece al comercio indicado' });
     }
@@ -112,7 +113,9 @@ router.post('/', async (req, res) => {
   try {
     if (direccionOrigen?.trim() && direccionDestino?.trim()) {
       geoOrigen = await resolverCoordenadas(direccionOrigen, entidadOrigen);
+      if (geoOrigen?.fuera_de_zona) geoOrigen = null; // ambigua: no usar
       if (geoOrigen) geoDestino = await resolverCoordenadas(direccionDestino, entidadDestino);
+      if (geoDestino?.fuera_de_zona) geoDestino = null;
       if (geoOrigen && geoDestino) {
         const ruta = await distanciaRutaKm(geoOrigen, geoDestino);
         const km = Math.max(0.1, ruta.km);
@@ -134,7 +137,7 @@ router.post('/', async (req, res) => {
 
   if (distanciaKm == null && !body.precio) {
     return res.status(422).json({
-      error: 'No pudimos calcular la distancia con esas direcciones. Revisá calle y número, o cargá los km a mano.',
+      error: 'No pudimos confirmar las direcciones. Agregá ciudad/localidad, o cargá los km a mano.',
     });
   }
 
@@ -188,7 +191,9 @@ router.post('/', async (req, res) => {
     cliente_id:     body.cliente_id     ?? null,
     cliente_nombre: body.cliente_nombre ?? null,
     direccion:      body.direccion      ?? body.destino ?? null,
-    zona:           body.zona           ?? null,
+    // Zona: secundaria (solo preferencia de matching); si el comercio no la
+    // manda, se hereda del cliente guardado.
+    zona:           body.zona           ?? clienteRow?.zona ?? null,
     zona_label:     body.zona_label     ?? null,
 
     // Particular
@@ -398,6 +403,19 @@ router.patch('/:id/aceptar', requireRole('cadete', 'admin'), async (req, res) =>
 
   if (errorCadete || !cadete || !cadete.activo || cadete.estado === 'offline') {
     return res.status(403).json({ error: 'Cadete no disponible para aceptar pedidos' });
+  }
+
+  // Un cadete lleva UN pedido a la vez: si ya tiene uno activo, no puede
+  // aceptar otro hasta marcarlo entregado.
+  const { data: ordenActiva } = await supabase
+    .from('ordenes')
+    .select('id')
+    .eq('cadete_id', cadete_id)
+    .in('estado', ['asignada', 'en_camino'])
+    .limit(1)
+    .maybeSingle();
+  if (ordenActiva) {
+    return res.status(409).json({ error: 'Ya tenés un pedido en curso. Entregalo antes de aceptar otro.' });
   }
 
   // Broadcast: cualquier cadete activo puede tomarlo (la zona no bloquea),

@@ -217,7 +217,7 @@ function navByRol(rol) {
     { key: 'pedido',    label: 'Nuevo pedido', icon: 'pedidos' },
     { key: 'historial', label: 'Pedidos',      icon: 'reportes' },
     { key: 'clientes',  label: 'Clientes',     icon: 'clientes' },
-    { key: 'saldo',     label: 'Saldo y plan', icon: 'facturacion' },
+    { key: 'saldo',     label: 'Mi plan',      icon: 'facturacion' },
   ];
   if (rol === 'cadete') return [
     { key: 'inicio',    label: 'Inicio',    icon: 'inicio' },

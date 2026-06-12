@@ -33,9 +33,18 @@ export async function encontrarCadete(orden) {
 
   if (error || !cadetes?.length) return null;
 
-  // Excluir cadetes que ya rechazaron este pedido
+  // Excluir cadetes que YA llevan un pedido (un viaje a la vez), aunque su
+  // estado haya quedado desactualizado en 'disponible'.
+  const { data: enCurso } = await supabase
+    .from('ordenes')
+    .select('cadete_id')
+    .in('estado', ['asignada', 'en_camino'])
+    .not('cadete_id', 'is', null);
+  const ocupados = new Set((enCurso ?? []).map((o) => o.cadete_id));
+
+  // Excluir también a los que ya rechazaron este pedido
   const rechazos = orden.rechazos || [];
-  const disponibles = cadetes.filter((c) => !rechazos.includes(c.id));
+  const disponibles = cadetes.filter((c) => !rechazos.includes(c.id) && !ocupados.has(c.id));
   if (!disponibles.length) return null;
 
   // Preferir los de la misma zona; si no hay, cualquiera disponible

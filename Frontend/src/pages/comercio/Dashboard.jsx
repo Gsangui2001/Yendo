@@ -125,10 +125,13 @@ export default function ComercioApp({ perfil, page, setPage }) {
   if (loadingData) return <Spinner />;
 
   const hoyStr     = new Date().toISOString().slice(0, 10);
+  const mesStr     = new Date().toISOString().slice(0, 7);
   const hoy        = ordenes.filter(o => o.creado_en?.startsWith(hoyStr));
   const activas    = ordenes.filter(o => ['pendiente','asignada','en_camino'].includes(o.estado));
-  const entregadasHoy = hoy.filter(o => o.estado === 'entregada');
-  const facturacionHoy = entregadasHoy.reduce((s, o) => s + (Number(o.precio) || 0), 0);
+  // Días trabajados del mes: fechas únicas con al menos un pedido creado
+  const diasActivosMes = new Set(
+    ordenes.filter(o => o.creado_en?.startsWith(mesStr)).map(o => o.creado_en.slice(0, 10))
+  ).size;
   const nombre = comercio?.nombre ?? perfil?.nombre ?? 'Comercio';
   const cadetesDisponibles = cadetes.filter(c => c.estado === 'disponible');
   const pedidoEnSeguimiento = activas.find(o => ['asignada', 'en_camino'].includes(o.estado)) ?? activas[0] ?? null;
@@ -155,11 +158,11 @@ export default function ComercioApp({ perfil, page, setPage }) {
     </div>
   );
 
-  // ── SALDO Y PLAN ──────────────────────────────────────────────────────────
+  // ── MI PLAN ───────────────────────────────────────────────────────────────
   if (page === 'saldo') return (
     <div className="animate-fade-in space-y-5">
-      <PageHeader titulo="Saldo y plan" sub="Estado de cuenta de tu comercio" onBack={() => setPage('inicio')} />
-      <SaldoView comercio={comercio} ordenes={ordenes} nombre={nombre} />
+      <PageHeader titulo="Mi plan" sub="Tu suscripción y actividad del mes" onBack={() => setPage('inicio')} />
+      <SaldoView comercio={comercio} ordenes={ordenes} nombre={nombre} clientes={clientes} />
     </div>
   );
 
@@ -272,12 +275,13 @@ export default function ComercioApp({ perfil, page, setPage }) {
         </div>
       </div>
 
-      {/* Stat cards */}
+      {/* Stat cards: actividad del comercio (acá no hay "facturación":
+          el comercio paga abono, los envíos no son ingresos suyos) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 stagger">
-        <StatCard icon="box"    tint="green"  label="Pedidos hoy"     value={hoy.length}                  delta={`+${hoy.length} hoy`}    up  idx={0} />
-        <StatCard icon="wallet" tint="green"  label="Facturación hoy" value={`$${fmt(facturacionHoy)}`}   delta="entregados"               up  idx={1} />
-        <StatCard icon="clock"  tint="purple" label="Pedidos activos" value={activas.length}              delta="en curso"                      idx={2} />
-        <StatCard icon="users"  tint="violet" label="Clientes"        value={clientes.length}             delta="guardados"                up  idx={3} />
+        <StatCard icon="box"    tint="green"  label="Pedidos hoy"          value={hoy.length}      delta={`+${hoy.length} hoy`} up  idx={0} />
+        <StatCard icon="clock"  tint="purple" label="Pedidos activos"      value={activas.length}  delta="en curso"                  idx={1} />
+        <StatCard icon="chart"  tint="green"  label="Días activos del mes" value={diasActivosMes}  delta="con pedidos"          up  idx={2} />
+        <StatCard icon="users"  tint="violet" label="Clientes"             value={clientes.length} delta="guardados"            up  idx={3} />
       </div>
 
       {/* Seguimiento + pedidos activos */}
@@ -653,14 +657,18 @@ const PLAN_INFO = {
   anual:    { label: 'Plan Anual',   precio: 1300000, periodo: '/año', desc: 'El mejor precio por envío' },
 };
 
-function SaldoView({ comercio, ordenes, nombre }) {
+function SaldoView({ comercio, ordenes, nombre, clientes = [] }) {
   const plan   = PLAN_INFO[comercio?.plan ?? 'sin_plan'] ?? PLAN_INFO.sin_plan;
   const activo = comercio?.activo ?? false;
   const mesStr = new Date().toISOString().slice(0, 7);
-  const entregadas    = ordenes.filter(o => o.estado === 'entregada');
-  const entregadasMes = entregadas.filter(o => (o.entregada_en ?? o.creado_en ?? '').startsWith(mesStr));
-  const gastoMes   = entregadasMes.reduce((s, o) => s + (Number(o.precio) || 0), 0);
-  const gastoTotal = entregadas.reduce((s, o) => s + (Number(o.precio) || 0), 0);
+  // Actividad del comercio (acá no hay "facturación": el comercio paga abono,
+  // los envíos no son ingresos suyos)
+  const pedidosMes    = ordenes.filter(o => o.creado_en?.startsWith(mesStr));
+  const entregadasMes = pedidosMes.filter(o => o.estado === 'entregada');
+  const activasAhora  = ordenes.filter(o => ['pendiente','asignada','en_camino'].includes(o.estado));
+  // Días trabajados: fechas únicas del mes con al menos un pedido creado
+  const diasConPedidos = [...new Set(pedidosMes.map(o => o.creado_en.slice(0, 10)))].sort().reverse();
+  const promedioDia = diasConPedidos.length ? (pedidosMes.length / diasConPedidos.length).toFixed(1) : '0';
 
   return (
     <div className="space-y-5">
@@ -683,24 +691,52 @@ function SaldoView({ comercio, ordenes, nombre }) {
         )}
       </div>
 
-      {/* Métricas reales */}
-      <div className="grid gap-4 sm:grid-cols-3">
+      {/* Actividad del mes */}
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
         <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
           <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-green-50 text-green-600"><Icon name="box" className="w-5 h-5" /></span>
-          <p className="mt-3 text-2xl font-extrabold text-gray-900">{entregadasMes.length}</p>
-          <p className="text-xs text-gray-400">Envíos este mes</p>
+          <p className="mt-3 text-2xl font-extrabold text-gray-900">{pedidosMes.length}</p>
+          <p className="text-xs text-gray-400">Pedidos del mes</p>
         </div>
         <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-50 text-violet-600"><Icon name="wallet" className="w-5 h-5" /></span>
-          <p className="mt-3 text-2xl font-extrabold text-gray-900">${gastoMes.toLocaleString('es-AR')}</p>
-          <p className="text-xs text-gray-400">Gastado este mes</p>
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-green-50 text-green-600"><Icon name="check" className="w-5 h-5" /></span>
+          <p className="mt-3 text-2xl font-extrabold text-gray-900">{entregadasMes.length}</p>
+          <p className="text-xs text-gray-400">Entregados</p>
         </div>
         <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
           <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-600"><Icon name="chart" className="w-5 h-5" /></span>
-          <p className="mt-3 text-2xl font-extrabold text-gray-900">${gastoTotal.toLocaleString('es-AR')}</p>
-          <p className="text-xs text-gray-400">Gastado histórico</p>
+          <p className="mt-3 text-2xl font-extrabold text-gray-900">{diasConPedidos.length}</p>
+          <p className="text-xs text-gray-400">Días trabajados del mes</p>
+        </div>
+        <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-50 text-violet-600"><Icon name="clock" className="w-5 h-5" /></span>
+          <p className="mt-3 text-2xl font-extrabold text-gray-900">{promedioDia}</p>
+          <p className="text-xs text-gray-400">Pedidos por día activo</p>
+        </div>
+        <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-50 text-amber-600"><Icon name="users" className="w-5 h-5" /></span>
+          <p className="mt-3 text-2xl font-extrabold text-gray-900">{clientes.length}</p>
+          <p className="text-xs text-gray-400">Clientes guardados</p>
         </div>
       </div>
+
+      {/* Días con pedidos (lista simple; el calendario visual queda para después) */}
+      {diasConPedidos.length > 0 && (
+        <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+          <h3 className="mb-3 font-bold text-gray-900">Días con pedidos este mes</h3>
+          <div className="flex flex-wrap gap-2">
+            {diasConPedidos.map(d => {
+              const n = pedidosMes.filter(o => o.creado_en.startsWith(d)).length;
+              return (
+                <span key={d} className="inline-flex items-center gap-1.5 rounded-full bg-green-50 px-3 py-1.5 text-xs font-semibold text-green-700">
+                  {new Date(`${d}T12:00:00`).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })}
+                  <span className="rounded-full bg-green-600 px-1.5 text-[10px] font-bold text-white">{n}</span>
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Detalle del abono */}
       <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
@@ -709,6 +745,7 @@ function SaldoView({ comercio, ordenes, nombre }) {
           <SaldoRow k="Plan"     v={plan.label} />
           <SaldoRow k="Abono"    v={plan.precio > 0 ? `$${plan.precio.toLocaleString('es-AR')} ${plan.periodo}` : 'Sin abono'} />
           <SaldoRow k="Estado"   v={activo ? 'Al día' : 'Suspendido'} highlight={activo ? 'green' : 'red'} />
+          <SaldoRow k="Pedidos activos ahora" v={activasAhora.length} />
           <SaldoRow k="Comercio" v={nombre} />
         </dl>
         <div className="mt-4 flex items-start gap-2 rounded-xl border border-amber-100 bg-amber-50 p-3">
