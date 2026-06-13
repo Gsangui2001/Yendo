@@ -235,6 +235,8 @@ router.post('/', async (req, res) => {
     monto_a_depositar_cadete: desglose.monto_a_depositar_cadete,
     precio_calculado_en:      new Date().toISOString(),
 
+    notas_cadete: body.notas_cadete?.trim() || null,
+
     // GPS: origen mejora el matching, destino alimenta el tracking en mapa.
     // Prioridad: GPS real del dispositivo si vino Y es razonable (caja
     // Argentina); si no, lo geocodificado por el backend.

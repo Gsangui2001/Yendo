@@ -534,11 +534,20 @@ function PedidoActivo({ orden, cadete }) {
           <div className="rounded-xl bg-white p-3">
             <p className="text-xs text-gray-400">Cadete</p>
             <p className="truncate text-sm font-bold text-gray-900">{cadete?.nombre ?? 'Buscando disponible'}</p>
-            {cadete?.telefono
-              ? <a href={`tel:${cadete.telefono}`} className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-green-600 hover:text-green-700">
+            {cadete?.telefono ? (
+              <div className="mt-1 flex flex-wrap gap-2">
+                <a href={`tel:${cadete.telefono}`} className="inline-flex items-center gap-1 text-xs font-semibold text-green-600 hover:text-green-700">
                   <Icon name="phone" className="w-3.5 h-3.5" /> Llamar
                 </a>
-              : <p className="text-xs text-gray-400">Sin asignar</p>}
+                <a
+                  href={`https://wa.me/54${cadete.telefono.replace(/\D/g,'')}?text=${encodeURIComponent(`Hola ${cadete.nombre ?? ''}, soy de ${orden.comercio_nombre ?? 'el comercio'}. Pedido: ${orden.direccion ?? ''}.`)}`}
+                  target="_blank" rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-[#25D366] hover:text-[#1ebe5d]"
+                >
+                  <Icon name="message" className="w-3.5 h-3.5" /> WhatsApp
+                </a>
+              </div>
+            ) : <p className="text-xs text-gray-400">Sin asignar</p>}
           </div>
         </div>
 

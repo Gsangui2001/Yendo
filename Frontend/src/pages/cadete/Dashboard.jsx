@@ -256,7 +256,7 @@ export default function CadeteApp({ perfil, page }) {
         </Card>
 
         {/* Stats hoy */}
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-3 gap-2 sm:gap-3">
           {[
             { label: 'Viajes hoy', value: cadete?.viajes_hoy ?? 0 },
             { label: 'Entregas hoy', value: entregadasHoy.length },
@@ -271,7 +271,7 @@ export default function CadeteApp({ perfil, page }) {
 
         {/* Pedido en curso */}
         {ordenActiva && (
-          <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+          <div className="grid gap-4 md:grid-cols-[1.2fr_0.8fr]">
             <TrackingMap
               order={ordenActiva}
               cadete={cadete}
@@ -370,6 +370,12 @@ function PedidoEnCurso({ orden, accion, onEnCamino, onEntregar }) {
           <Icon name="user" className="w-4 h-4 text-gray-400" />
           <span className="font-semibold text-gray-700 truncate">{orden.cliente_nombre ?? orden.descripcion ?? 'Cliente'}</span>
         </div>
+        {orden.notas_cadete && (
+          <div className="mt-3 flex items-start gap-2 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5">
+            <Icon name="info" className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+            <p className="text-sm text-amber-800 font-medium">{orden.notas_cadete}</p>
+          </div>
+        )}
       </div>
 
       {/* Ganancia del viaje */}

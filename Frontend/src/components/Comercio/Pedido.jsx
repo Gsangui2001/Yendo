@@ -13,12 +13,15 @@ export default function Pedido({ comercioId, comercio, onSuccess }) {
 
   // Sin zona: el precio sale SOLO de la distancia origen→destino que calcula
   // el backend. La zona quedó como dato interno secundario (matching).
+  const [confirmacion, setConfirmacion] = useState(null); // { codigo, clienteNombre, clienteTelefono }
+
   const [form, setForm] = useState({
-    clienteId:  '',
-    direccion:  '',
-    distanciaKm: '',
-    propina:     '',
-    metodoPago:  'efectivo',
+    clienteId:    '',
+    direccion:    '',
+    distanciaKm:  '',
+    propina:      '',
+    metodoPago:   'efectivo',
+    notasCadete:  '',
   });
   const [cotizacion, setCotizacion] = useState(null);
   const [cotizando,  setCotizando]  = useState(false);
@@ -101,7 +104,7 @@ export default function Pedido({ comercioId, comercio, onSuccess }) {
 
   async function cargarClientes() {
     const { data } = await supabase
-      .from('clientes').select('id, nombre, direccion, zona')
+      .from('clientes').select('id, nombre, direccion, zona, telefono')
       .eq('comercio_id', comercioId).order('nombre');
     setClientes(data ?? []);
   }
@@ -174,24 +177,32 @@ export default function Pedido({ comercioId, comercio, onSuccess }) {
           cliente_id:     form.clienteId,
           cliente_nombre: cliente?.nombre,
           direccion:      form.direccion,
-          // Zona: dato interno secundario (matching); sale del cliente si la tiene
           zona:           cliente?.zona || undefined,
           distancia_km:   kmFallback,
           propina_cadete: Number(form.propina) || 0,
           metodo_pago:    form.metodoPago,
+          notas_cadete:   form.notasCadete.trim() || undefined,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error ?? data?.errores?.join(', '));
 
-      const codigo = data.codigo_entrega ? ` Código de entrega: ${data.codigo_entrega}.` : '';
-      const msg = data.sin_cadetes
-        ? `Sin cadetes disponibles. Espera aprox. ${data.espera_minutos} min — el pedido quedó en cola.${codigo}`
-        : `¡Pedido enviado! Buscando cadete...${codigo}`;
-      showToast(msg, data.sin_cadetes ? 'warn' : 'success');
-      setForm(prev => ({ ...prev, clienteId: '', direccion: '' }));
+      if (data.codigo_entrega) {
+        setConfirmacion({
+          codigo:          data.codigo_entrega,
+          clienteNombre:   cliente?.nombre ?? '',
+          clienteTelefono: cliente?.telefono ?? '',
+          sinCadetes:      Boolean(data.sin_cadetes),
+          esperaMinutos:   data.espera_minutos,
+        });
+      } else {
+        showToast(data.sin_cadetes
+          ? `Sin cadetes disponibles. Espera aprox. ${data.espera_minutos} min — pedido en cola.`
+          : '¡Pedido enviado! Buscando cadete...', data.sin_cadetes ? 'warn' : 'success');
+        setTimeout(() => onSuccess?.(), 1500);
+      }
+      setForm(prev => ({ ...prev, clienteId: '', direccion: '', notasCadete: '' }));
       setErrors({});
-      setTimeout(() => onSuccess?.(), 1500);
     } catch (err) {
       showToast(err?.message || 'No se pudo enviar el pedido. Intentá de nuevo.', 'error');
     } finally {
@@ -202,6 +213,65 @@ export default function Pedido({ comercioId, comercio, onSuccess }) {
   function showToast(message, type) {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
+  }
+
+  function waLink(telefono, texto) {
+    const num = telefono.replace(/\D/g, '');
+    const numAr = num.startsWith('54') ? num : `54${num}`;
+    return `https://wa.me/${numAr}?text=${encodeURIComponent(texto)}`;
+  }
+
+  // Panel de confirmación del pedido con código de entrega
+  if (confirmacion) {
+    const { codigo, clienteNombre, clienteTelefono, sinCadetes, esperaMinutos } = confirmacion;
+    const msgWa = `Hola${clienteNombre ? ` ${clienteNombre}` : ''}! 🛵 Tu pedido está${sinCadetes ? ' en cola' : ' en camino'}. Cuando llegue el cadete, mostrá este código:\n\n🔑 *${codigo}*\n\nNO lo compartas antes de que llegue.`;
+    return (
+      <div className="mx-auto max-w-sm px-2 py-8 animate-fade-in">
+        <div className="rounded-3xl border border-green-200 bg-white p-6 shadow-lg text-center space-y-5">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-green-100">
+            <Icon name="check" className="h-7 w-7 text-green-600" />
+          </div>
+          <div>
+            <p className="text-xs font-bold uppercase tracking-widest text-green-700">Pedido creado</p>
+            <p className="mt-1 text-lg font-extrabold text-gray-900">
+              {sinCadetes ? `Sin cadetes — espera ~${esperaMinutos} min` : '¡Buscando cadete!'}
+            </p>
+          </div>
+
+          {/* Código grande */}
+          <div className="rounded-2xl border-2 border-dashed border-amber-300 bg-amber-50 py-5">
+            <p className="text-xs font-bold uppercase tracking-widest text-amber-700">Código de entrega del cliente</p>
+            <p className="mt-2 text-5xl font-extrabold tracking-[0.3em] text-amber-800">{codigo}</p>
+            <p className="mt-2 text-xs text-amber-600">El cliente muestra este código al cadete al recibir el pedido</p>
+          </div>
+
+          {/* Botones */}
+          <div className="space-y-2">
+            {clienteTelefono ? (
+              <a
+                href={waLink(clienteTelefono, msgWa)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#25D366] py-3.5 text-sm font-extrabold text-white shadow hover:bg-[#1ebe5d] active:scale-95"
+              >
+                <Icon name="message" className="h-5 w-5" />
+                Enviar código por WhatsApp al cliente
+              </a>
+            ) : (
+              <div className="rounded-xl bg-gray-50 px-4 py-3 text-xs text-gray-500">
+                El cliente no tiene teléfono guardado. Pasale el código manualmente: <strong>{codigo}</strong>
+              </div>
+            )}
+            <button
+              onClick={() => { setConfirmacion(null); onSuccess?.(); }}
+              className="w-full rounded-xl border border-gray-200 py-3 text-sm font-semibold text-gray-600 hover:bg-gray-50 active:scale-95"
+            >
+              Listo, cerrar
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -227,7 +297,7 @@ export default function Pedido({ comercioId, comercio, onSuccess }) {
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} noValidate className="grid gap-5 lg:grid-cols-[1fr_340px]">
+      <form onSubmit={handleSubmit} noValidate className="grid gap-4 md:grid-cols-[1fr_320px] lg:grid-cols-[1fr_360px]">
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-5">
 
           {/* Cliente */}
@@ -299,6 +369,17 @@ export default function Pedido({ comercioId, comercio, onSuccess }) {
             )}
           </Field>
 
+          {/* Notas para el cadete */}
+          <Field label="Notas para el cadete (opcional)">
+            <textarea
+              rows={2}
+              value={form.notasCadete}
+              onChange={e => setForm(p => ({ ...p, notasCadete: e.target.value }))}
+              placeholder="Ej: Tocar timbre 2B, dejar con el portero, llevar cambio de $5000…"
+              className="w-full resize-none rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-900 placeholder-gray-400 focus:border-green-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-green-200"
+            />
+          </Field>
+
           {/* Pago, propina y (solo como fallback) distancia manual */}
           <div className={`grid gap-3 ${geoError ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
             {geoError && (
@@ -324,7 +405,7 @@ export default function Pedido({ comercioId, comercio, onSuccess }) {
           <p className="-mt-2 text-xs text-gray-400">Tarifa comercio: $3.000 hasta 5 km · $1.100 por km extra. La distancia se calcula sola desde tu local hasta la entrega. La propina es 100% para el cadete.</p>
         </div>
 
-        <aside className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm lg:sticky lg:top-6 lg:self-start">
+        <aside className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm md:sticky md:top-6 md:self-start">
           <p className="text-sm font-extrabold text-gray-900">Resumen del pedido</p>
           <div className="mt-4 space-y-3">
             <SummaryRow icon="user" label="Cliente" value={clientes.find(c => c.id === form.clienteId)?.nombre || 'Sin seleccionar'} />
